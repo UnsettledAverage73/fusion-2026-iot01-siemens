@@ -1,0 +1,1382 @@
+import sqlite3
+from datetime import datetime, timedelta
+import os
+
+try:
+    import rust_engine
+except ImportError:
+    rust_engine = None
+
+DB_PATH = "data/factory_ops.db"
+TEXTUAL_DATA_PATH = "data/sample_maintenance_data.json"
+
+def init_db():
+    """Initializes the Sovereign Ledger with Telemetry, Intelligence, and Human Feedback layers."""
+    os.makedirs("data", exist_ok=True)
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+   # connect 
+    # 1. Telemetry Layer: High-frequency raw sensor data (Legacy)
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS sensor_readings (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            equipment_id TEXT NOT NULL,
+            timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+            temperature REAL,
+            vibration REAL
+        )
+    ''')
+
+    # 1.1 Universal Telemetry Layer: Parameter-aware time-series (New)
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS telemetry_readings (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            machine_id TEXT NOT NULL,
+            parameter_key TEXT NOT NULL,
+            value REAL,
+            string_value TEXT,
+            timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+        )
+    ''')
+
+    # 1.2 Parameter Registry: Defines what a machine can measure
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS machine_parameters (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            machine_id TEXT NOT NULL,
+            parameter_key TEXT NOT NULL,
+            display_name TEXT NOT NULL,
+            category TEXT DEFAULT 'custom',
+            data_type TEXT DEFAULT 'float',
+            unit TEXT,
+            normal_min REAL,
+            normal_max REAL,
+            warning_threshold REAL,
+            critical_threshold REAL,
+            direction TEXT DEFAULT 'above',
+            source_field TEXT,
+            is_visible BOOLEAN DEFAULT 1,
+            is_used_for_prediction BOOLEAN DEFAULT 1,
+            aggregation TEXT DEFAULT 'last',
+            display_order INTEGER DEFAULT 0,
+            description TEXT,
+            alert_enabled BOOLEAN DEFAULT 1,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(machine_id, parameter_key)
+        )
+    ''')
+
+    # 1.3 Custom Sensor Registry: Dynamic user-defined and cloud-synced sensors
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS custom_sensor_registry (
+            id TEXT PRIMARY KEY,
+            name TEXT NOT NULL,
+            metric TEXT NOT NULL,
+            unit TEXT NOT NULL,
+            category TEXT DEFAULT 'general',
+            interface_type TEXT DEFAULT 'analog',
+            pin_esp32 TEXT,
+            pin_pi TEXT,
+            pin_arduino TEXT,
+            default_value REAL DEFAULT 0.0,
+            normal_min REAL DEFAULT 0.0,
+            normal_max REAL DEFAULT 100.0,
+            warning_threshold REAL DEFAULT 80.0,
+            critical_threshold REAL DEFAULT 95.0,
+            calibration_formula TEXT,
+            description TEXT,
+            code_snippet_c TEXT,
+            code_snippet_py TEXT,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        )
+    ''')
+    
+    # 2. Intelligence Layer: AI-generated strategic prescriptions
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS ai_alerts (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            equipment_id TEXT NOT NULL,
+            timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+            severity TEXT,
+            reason TEXT,
+            prescription TEXT,
+            feedback_score INTEGER, -- 1 for correct, -1 for incorrect
+            feedback_notes TEXT
+        )
+    ''')
+
+    # Add columns if they don't exist (Migration)
+    try:
+        cursor.execute("ALTER TABLE ai_alerts ADD COLUMN feedback_score INTEGER")
+    except sqlite3.OperationalError: pass
+    try:
+        cursor.execute("ALTER TABLE ai_alerts ADD COLUMN feedback_notes TEXT")
+    except sqlite3.OperationalError: pass
+
+    # 3. Feedback Layer: Manual repair logs from the Sovereign Engineer
+    # This is the "Ground Truth" that makes your RAG system smarter over time.
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS manual_logs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            equipment_id TEXT NOT NULL,
+            timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+            operator_name TEXT,
+            action_taken TEXT NOT NULL,
+            parts_replaced TEXT,
+            resolved_anomaly_id INTEGER,
+            FOREIGN KEY(resolved_anomaly_id) REFERENCES ai_alerts(id)
+        )
+    ''')
+
+    # 4. Asset Layer: Persistent machine metadata
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS equipment (
+            id TEXT PRIMARY KEY,
+            name TEXT NOT NULL,
+            production_line TEXT,
+            machine_class TEXT, -- New: Machine Type (CNC, Robotic Arm, etc)
+            plant_id TEXT DEFAULT 'Hosur-01', -- New: Plant Identification
+            sector TEXT DEFAULT 'Electronics', -- New: Sector (Steel, Auto, Semi)
+            protocol TEXT,
+            status TEXT DEFAULT 'online',
+            mtbf INTEGER,
+            last_maintenance_date TEXT,
+            next_scheduled_date TEXT,
+            agent_id TEXT,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        )
+    ''')
+
+    for alter_stmt in (
+        "ALTER TABLE equipment ADD COLUMN machine_class TEXT",
+        "ALTER TABLE equipment ADD COLUMN is_bottleneck BOOLEAN DEFAULT 0",
+        "ALTER TABLE equipment ADD COLUMN quality_impact_score REAL DEFAULT 0.0",
+        "ALTER TABLE equipment ADD COLUMN mac_address TEXT",
+        "ALTER TABLE equipment ADD COLUMN sensor_kind TEXT",
+    ):
+        try:
+            cursor.execute(alter_stmt)
+        except sqlite3.OperationalError:
+            pass
+
+    # 5. Maintenance Schedule: Task management
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS maintenance_tasks (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            machine_id TEXT NOT NULL,
+            task_name TEXT NOT NULL,
+            task_type TEXT DEFAULT 'routine', -- routine, repair, inspection
+            due_date TEXT,
+            status TEXT DEFAULT 'pending', -- pending, in_progress, completed, overdue
+            assigned_to TEXT,
+            completed_at TEXT,
+            notes TEXT,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY(machine_id) REFERENCES equipment(id)
+        )
+    ''')
+
+    # 6. AI Agent Memory: Chat History
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS agent_history (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            session_id TEXT,
+            machine_id TEXT NOT NULL,
+            role TEXT NOT NULL, -- user, assistant, system_vision
+            content TEXT NOT NULL,
+            is_visual_context BOOLEAN DEFAULT 0, -- Flag for OCR/Vision data
+            timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+        )
+    ''')
+
+    # 7. Knowledge Base: Manuals Registry
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS manuals_registry (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            machine_id TEXT NOT NULL,
+            filename TEXT NOT NULL,
+            file_type TEXT NOT NULL, -- pdf, image, doc
+            pinecone_id_prefix TEXT,
+            uploaded_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY(machine_id) REFERENCES equipment(id)
+        )
+    ''')
+
+    # 8. Financial Layer: Cost model inputs in INR
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS machine_financials (
+            machine_id TEXT PRIMARY KEY,
+            standard_labor_rate REAL DEFAULT 500.0,
+            num_laborers INTEGER DEFAULT 2,
+            planned_labor_cost_inr REAL NOT NULL,
+            emergency_labor_multiplier REAL DEFAULT 3.0,
+            downtime_cost_per_hour_inr REAL NOT NULL,
+            default_parts_markup_multiplier REAL DEFAULT 1.35,
+            currency TEXT DEFAULT 'INR',
+            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY(machine_id) REFERENCES equipment(id)
+        )
+    ''')
+
+    # Add columns if they don't exist (Migration)
+    try:
+        cursor.execute("ALTER TABLE machine_financials ADD COLUMN standard_labor_rate REAL DEFAULT 500.0")
+    except sqlite3.OperationalError: pass
+    try:
+        cursor.execute("ALTER TABLE machine_financials ADD COLUMN num_laborers INTEGER DEFAULT 2")
+    except sqlite3.OperationalError: pass
+
+    # 9. Spare Parts Catalog: Planned vs emergency cost baselines
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS spare_parts_catalog (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            machine_id TEXT NOT NULL,
+            part_name TEXT NOT NULL,
+            part_code TEXT,
+            planned_cost_inr REAL NOT NULL,
+            emergency_cost_inr REAL,
+            lead_time_hours REAL DEFAULT 24,
+            oem_recommended_life_hours REAL,
+            FOREIGN KEY(machine_id) REFERENCES equipment(id)
+        )
+    ''')
+
+    # 10. Usage Layer: Runtime and load snapshots for wear modelling
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS machine_usage_snapshots (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            machine_id TEXT NOT NULL,
+            runtime_hours REAL NOT NULL,
+            idle_hours REAL DEFAULT 0,
+            load_percent REAL DEFAULT 0,
+            captured_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY(machine_id) REFERENCES equipment(id)
+        )
+    ''')
+
+    # 11. AI Incident Intelligence: Latest synthesized machine incident report
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS incident_reports_ai (
+            machine_id TEXT PRIMARY KEY,
+            incident_type TEXT NOT NULL,
+            severity TEXT NOT NULL,
+            who_text TEXT,
+            what_text TEXT,
+            where_text TEXT,
+            when_text TEXT,
+            why_text TEXT,
+            root_cause_summary TEXT,
+            threat_signature TEXT,
+            generated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY(machine_id) REFERENCES equipment(id)
+        )
+    ''')
+
+    # 12. Scheduling profile: operational criticality and downtime impact
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS asset_priority_profile (
+            machine_id TEXT PRIMARY KEY,
+            machine_class TEXT DEFAULT 'tier2',
+            criticality_score REAL DEFAULT 3,
+            downtime_cost_per_hour_inr REAL DEFAULT 50000,
+            downstream_dependency_count INTEGER DEFAULT 0,
+            bypass_available BOOLEAN DEFAULT 0,
+            current_demand_level TEXT DEFAULT 'normal',
+            FOREIGN KEY(machine_id) REFERENCES equipment(id)
+        )
+    ''')
+
+    # 13. Scheduling resources: spare inventory
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS inventory_spares (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            machine_id TEXT NOT NULL,
+            part_code TEXT,
+            part_name TEXT NOT NULL,
+            qty_available INTEGER DEFAULT 0,
+            lead_time_hours REAL DEFAULT 24,
+            warehouse_location TEXT,
+            FOREIGN KEY(machine_id) REFERENCES equipment(id)
+        )
+    ''')
+
+    # 14. Scheduling resources: technician skills and current shift
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS technician_skills (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            technician_id TEXT NOT NULL,
+            technician_name TEXT NOT NULL,
+            skill_code TEXT NOT NULL,
+            certification_level TEXT DEFAULT 'general',
+            is_on_shift BOOLEAN DEFAULT 0
+        )
+    ''')
+
+    # 15. Scheduling resources: specialized tools
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS tool_availability (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            tool_id TEXT NOT NULL,
+            tool_name TEXT NOT NULL,
+            machine_id TEXT,
+            is_available BOOLEAN DEFAULT 1,
+            reserved_until DATETIME
+        )
+    ''')
+
+    # 16. Scheduling opportunity windows from production plan
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS production_windows (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            machine_id TEXT NOT NULL,
+            window_start DATETIME NOT NULL,
+            window_end DATETIME NOT NULL,
+            window_type TEXT DEFAULT 'low_demand',
+            opportunity_score REAL DEFAULT 0.5,
+            FOREIGN KEY(machine_id) REFERENCES equipment(id)
+        )
+    ''')
+
+    # 17. Scheduling safety and compliance pressure
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS safety_risk_profile (
+            machine_id TEXT PRIMARY KEY,
+            safety_risk_score REAL DEFAULT 0,
+            environmental_risk_score REAL DEFAULT 0,
+            near_miss_count_90d INTEGER DEFAULT 0,
+            compliance_due_date TEXT,
+            regulatory_blocker BOOLEAN DEFAULT 0,
+            FOREIGN KEY(machine_id) REFERENCES equipment(id)
+        )
+    ''')
+    
+    conn.commit()
+    conn.close()
+    
+    # 5. Production Baseline Initialization:
+    # Only real physical hardware (CNC001) is initialized by default.
+    # Demo / mock data is only seeded if explicitly enabled via SEED_DEMO_DATA=true.
+    init_production_baseline()
+    if os.getenv("SEED_DEMO_DATA", "false").lower() in ("true", "1"):
+        seed_initial_data()
+        seed_insight_data()
+        seed_priority_scheduling_data()
+    
+    print(f"--- [DATABASE UPDATED] Schema V3 Live at {DB_PATH} ---")
+
+def log_agent_interaction(machine_id, role, content, session_id=None, is_visual_context=0):
+    """Saves a chat interaction to the Sovereign Memory."""
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute(
+        "INSERT INTO agent_history (machine_id, role, content, session_id, is_visual_context) VALUES (?, ?, ?, ?, ?)",
+        (machine_id, role, content, session_id, is_visual_context)
+    )
+    conn.commit()
+    conn.close()
+
+def get_agent_history(machine_id=None, limit=10, session_id=None):
+    """Retrieves previous interactions for a specific machine context or session."""
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    cursor = conn.cursor()
+    
+    if session_id:
+        cursor.execute(
+            "SELECT role, content, timestamp, is_visual_context FROM agent_history WHERE session_id = ? ORDER BY timestamp DESC, id DESC LIMIT ?",
+            (session_id, limit)
+        )
+    elif machine_id:
+        cursor.execute(
+            "SELECT role, content, timestamp, is_visual_context FROM agent_history WHERE machine_id = ? ORDER BY timestamp DESC, id DESC LIMIT ?",
+            (machine_id, limit)
+        )
+    else:
+        cursor.execute(
+            "SELECT role, content, timestamp, is_visual_context FROM agent_history ORDER BY timestamp DESC, id DESC LIMIT ?",
+            (limit,)
+        )
+        
+    rows = cursor.fetchall()
+    conn.close()
+    # Reverse to get chronological order
+    return [dict(row) for row in reversed(rows)]
+
+def get_recent_visual_context(machine_id, session_id=None, limit=5):
+    """Fetches the most recent visual context (OCR/Vision) entries for a session."""
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    cursor = conn.cursor()
+    if session_id:
+        cursor.execute("""
+            SELECT content FROM agent_history 
+            WHERE session_id = ? AND is_visual_context = 1 
+            ORDER BY timestamp DESC LIMIT ?
+        """, (session_id, limit))
+    else:
+        cursor.execute("""
+            SELECT content FROM agent_history 
+            WHERE machine_id = ? AND is_visual_context = 1 
+            ORDER BY timestamp DESC LIMIT ?
+        """, (machine_id, limit))
+    
+    rows = cursor.fetchall()
+    conn.close()
+    return [row['content'] for row in rows] if rows else []
+
+def get_machine_textual_history(machine_id):
+    """
+    Consolidates textual history (operational notes, incident reports, manual logs)
+    from both the JSON flat file and the SQLite Sovereign Ledger.
+    """
+    import json
+    history = []
+    
+    # 1. Fetch from SQLite Manual Logs
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    cursor = conn.cursor()
+    cursor.execute("SELECT timestamp, action_taken as note, 'Technician' as observed_by FROM manual_logs WHERE equipment_id = ?", (machine_id,))
+    history.extend([dict(row) for row in cursor.fetchall()])
+    conn.close()
+
+    # 2. Fetch from JSON Sample Data
+    try:
+        with open(TEXTUAL_DATA_PATH, "r") as f:
+            sample_data = json.load(f)
+            
+            # Operational Notes
+            history.extend([n for n in sample_data.get("operational_notes", []) if n['equipment_id'] == machine_id])
+            
+            # Incident Reports (Mapped to note format)
+            for inc in sample_data.get("incident_reports", []):
+                if inc['equipment_id'] == machine_id:
+                    history.append({
+                        "timestamp": inc['timestamp'],
+                        "note": f"INCIDENT: {inc['incident_type']} - {inc['description']}. Impact: {inc['impact']}",
+                        "observed_by": "System"
+                    })
+    except FileNotFoundError:
+        pass
+        
+    # Sort by timestamp descending
+    history.sort(key=lambda x: x['timestamp'], reverse=True)
+    return history
+
+def get_machine_health_summary(machine_id):
+    """Returns a summary of machine health for scheduling prioritization."""
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    cursor = conn.cursor()
+    
+    # 1. Recent Alerts
+    cursor.execute("SELECT severity, reason FROM ai_alerts WHERE equipment_id = ? ORDER BY timestamp DESC LIMIT 3", (machine_id,))
+    alerts = [dict(row) for row in cursor.fetchall()]
+    
+    # 2. Recent Telemetry
+    cursor.execute("SELECT temperature, vibration FROM sensor_readings WHERE equipment_id = ? ORDER BY timestamp DESC LIMIT 5", (machine_id,))
+    telemetry = [dict(row) for row in cursor.fetchall()]
+    
+    conn.close()
+    return {"alerts": alerts, "telemetry": telemetry}
+
+def get_all_pending_tasks():
+    """Retrieves all tasks that are not completed."""
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT t.*, e.name as machine_name 
+        FROM maintenance_tasks t
+        JOIN equipment e ON t.machine_id = e.id
+        WHERE t.status != 'completed'
+        ORDER BY t.due_date ASC
+    """)
+    tasks = [dict(row) for row in cursor.fetchall()]
+    conn.close()
+    return tasks
+
+def register_manual(machine_id, filename, file_type, pinecone_prefix=None):
+    """Registers an uploaded manual in the industrial knowledge base."""
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute(
+        "INSERT INTO manuals_registry (machine_id, filename, file_type, pinecone_id_prefix) VALUES (?, ?, ?, ?)",
+        (machine_id, filename, file_type, pinecone_prefix)
+    )
+    conn.commit()
+    conn.close()
+
+def get_registered_manuals(machine_id=None):
+    """Retrieves list of available manuals."""
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    cursor = conn.cursor()
+    if machine_id:
+        cursor.execute("SELECT * FROM manuals_registry WHERE machine_id = ?", (machine_id,))
+    else:
+        cursor.execute("SELECT * FROM manuals_registry")
+    conn.close()
+    return [dict(row) for row in rows]
+
+def init_production_baseline():
+    """Initializes production equipment with the real ESP32 edge node (CNC001) and physical sensors."""
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute("SELECT COUNT(*) FROM equipment WHERE id = 'CNC001'")
+    exists = cursor.fetchone()[0]
+    conn.close()
+
+    if not exists:
+        add_equipment(
+            eq_id="CNC001",
+            name="CNC Spindle & Motor Drive 01",
+            line="Line 1 - Spindle Operations",
+            protocol="HTTP",
+            mac_address="3c:71:bf:52:d7:c8",
+            sensor_kind="multi",
+            is_bottleneck=0,
+            quality_impact_score=0.8,
+        )
+        physical_params = [
+            ("temperature", "Motor Casing Temperature", "°C", 15, 60, 70, 80, "above"),
+            ("humidity", "Ambient Housing Humidity", "%", 20, 70, 80, 90, "above"),
+            ("current_draw", "Motor Stator Current (RMS)", "A", 0, 10, 14, 18, "above"),
+            ("rpm", "Shaft Rotation Speed", "RPM", 0, 3000, 3600, 4200, "above"),
+            ("hall_analog", "Magnetic Flux Index", "ADC", 50, 3500, 3800, 4000, "above"),
+            ("button_state", "Operator Inspection Flag", "State", 0, 1, 1, 1, "above"),
+            ("buzzer_state", "Audible Alarm Status", "State", 0, 1, 1, 1, "above"),
+        ]
+        for key, name, unit, n_min, n_max, w_th, c_th, direction in physical_params:
+            add_parameter("CNC001", key, name, unit, category="physical",
+                          normal_min=n_min, normal_max=n_max,
+                          warning_threshold=w_th, critical_threshold=c_th, direction=direction)
+
+def seed_initial_data():
+    """Populates the database with initial machines and parameters if empty."""
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute("SELECT COUNT(*) FROM equipment")
+    count = cursor.fetchone()[0]
+    conn.close()
+
+    if count == 0:
+        print("--- [SEEDING] Initializing Default Industrial Assets ---")
+        # id, name, line, protocol, is_bottleneck, quality_impact_score
+        initial_machines = [
+            ("CNC001", "Precision CNC Lathe Alpha", "Line 1 - Machining", "MQTT", 1, 0.9),
+            ("CONV01", "Main Assembly Conveyor", "Line 2 - Assembly", "OPC-UA", 1, 0.2),
+            ("HYD005", "High-Pressure Hydraulic Press", "Line 1 - Machining", "Modbus", 0, 0.7),
+            ("EXT002", "Polymer Extrusion Line", "Line 3 - Packaging", "MQTT", 0, 0.4)
+        ]
+        for eq_id, name, line, protocol, is_bottleneck, quality_impact in initial_machines:
+            add_equipment(eq_id, name, line, protocol, is_bottleneck=is_bottleneck, quality_impact_score=quality_impact)
+            seed_common_parameters(eq_id)
+            # Add some machine-specific parameters too
+            if eq_id == "CNC001":
+                add_parameter(eq_id, "spindle_load", "Spindle Load", "%", normal_min=0, normal_max=70, warning_threshold=85, critical_threshold=100)
+            elif eq_id == "HYD005":
+                add_parameter(eq_id, "oil_temp", "Oil Temperature", "°C", normal_min=30, normal_max=60, warning_threshold=75, critical_threshold=85)
+        
+        seed_maintenance_tasks()
+
+def seed_maintenance_tasks():
+    """Initializes a few maintenance tasks for demonstration."""
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute("SELECT COUNT(*) FROM maintenance_tasks")
+    if cursor.fetchone()[0] == 0:
+        tasks = [
+            ("CNC001", "Lubricate Spindle Bearings", "routine", 2, "pending", "Operator A"),
+            ("CONV01", "Belt Tension Calibration", "inspection", 5, "in_progress", "Operator B"),
+            ("HYD005", "Seal Integrity Verification", "repair", -1, "overdue", "Admin"),
+            ("EXT002", "Sensor Node Battery Swap", "routine", 10, "pending", "Operator A")
+        ]
+        for eq_id, name, t_type, days, status, assigned in tasks:
+            due = (datetime.now() + timedelta(days=days)).date().isoformat()
+            cursor.execute("""
+                INSERT INTO maintenance_tasks (machine_id, task_name, task_type, due_date, status, assigned_to)
+                VALUES (?, ?, ?, ?, ?, ?)
+            """, (eq_id, name, t_type, due, status, assigned))
+    conn.commit()
+    conn.close()
+    print("--- [SEEDING] Maintenance Tasks Online ---")
+
+
+def seed_insight_data():
+    """Populate financial, parts, usage, and baseline textual data for machine insights."""
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute("SELECT id, name FROM equipment")
+    machines = cursor.fetchall()
+
+    # Format: (planned_labor_total, emergency_mult, downtime_cost, markup, std_rate, num_labor)
+    financial_defaults = {
+        "CNC001": (18000, 3.4, 95000, 1.35, 500, 2),
+        "CONV01": (12000, 3.1, 65000, 1.25, 400, 2),
+        "HYD005": (15000, 3.3, 85000, 1.30, 600, 3),
+        "EXT002": (11000, 3.0, 60000, 1.25, 450, 2),
+    }
+
+    part_defaults = {
+        "CNC001": [
+            ("Bearing Unit-B", "BRG-UNIT-B", 28000, 41000, 18, 5000),
+            ("Spindle Coolant Pump", "CNC-PMP-17", 22000, 34500, 20, 6200),
+            ("Drive Belt Set", "CNC-BELT-04", 6500, 9800, 8, 2400),
+        ],
+        "CONV01": [
+            ("Conveyor Belt Section", "CNV-BELT-02", 18000, 25500, 24, 4200),
+            ("Tensioner Assembly", "CNV-TNS-09", 9500, 14200, 16, 3600),
+        ],
+        "HYD005": [
+            ("Seal Kit", "HYD-SEAL-11", 14000, 21000, 12, 3200),
+            ("Hydraulic Valve Pack", "HYD-VLV-07", 26000, 39000, 18, 5400),
+        ],
+        "EXT002": [
+            ("Extruder Bearing Set", "EXT-BRG-03", 21000, 31500, 16, 4700),
+            ("Thermal Sensor Node", "EXT-SNS-05", 5500, 8800, 6, 1800),
+        ],
+    }
+
+    usage_defaults = {
+        "CNC001": [(4520, 340, 72), (5010, 360, 79), (5520, 372, 86)],
+        "CONV01": [(3180, 410, 61), (3490, 425, 65), (3725, 433, 68)],
+        "HYD005": [(4010, 295, 66), (4380, 310, 71), (4675, 325, 76)],
+        "EXT002": [(2875, 515, 58), (3150, 540, 62), (3440, 566, 67)],
+    }
+
+    manual_defaults = {
+        "CNC001": [
+            ("Ravi", "Adjusted spindle alignment after high-pitched grinding sound near Unit-B.", "Bearing grease"),
+            ("Anita", "Manual reset performed after amperage spike; vibration remained elevated.", "None"),
+            ("Karan", "Observed overheating around spindle housing during second shift inspection.", "Coolant filter"),
+        ],
+        "CONV01": [
+            ("Meena", "Retensioned conveyor belt after slip alarms on startup.", "Tension spring"),
+        ],
+        "HYD005": [
+            ("Dinesh", "Checked seal pack after minor hydraulic leak near valve bank.", "Seal kit"),
+        ],
+    }
+
+    incident_defaults = {
+        "CNC001": (
+            "Bearing degradation risk",
+            "high",
+            "Shift technician and line supervisor",
+            "Grinding sound, current spike, and repeated manual reset around the spindle assembly.",
+            "CNC001 spindle Unit-B",
+            "During the last two shifts",
+            "Early overheating signals were observed but not escalated before bearing wear accelerated.",
+            "Grinding-sound -> amperage spike -> manual reset",
+        ),
+    }
+
+    for machine_id, machine_name in machines:
+        planned_labor, emergency_mult, downtime_cost, markup, std_rate, num_lab = financial_defaults.get(
+            machine_id, (10000, 3.0, 50000, 1.25, 500, 2)
+        )
+        cursor.execute("""
+            INSERT OR IGNORE INTO machine_financials
+            (machine_id, planned_labor_cost_inr, emergency_labor_multiplier, downtime_cost_per_hour_inr, default_parts_markup_multiplier, currency, standard_labor_rate, num_laborers)
+            VALUES (?, ?, ?, ?, ?, 'INR', ?, ?)
+        """, (machine_id, planned_labor, emergency_mult, downtime_cost, markup, std_rate, num_lab))
+
+        cursor.execute("SELECT COUNT(*) FROM spare_parts_catalog WHERE machine_id = ?", (machine_id,))
+        if cursor.fetchone()[0] == 0:
+            for part in part_defaults.get(machine_id, [(f"{machine_name} Service Kit", f"{machine_id}-KIT", 12000, 18000, 12, 3000)]):
+                cursor.execute("""
+                    INSERT INTO spare_parts_catalog
+                    (machine_id, part_name, part_code, planned_cost_inr, emergency_cost_inr, lead_time_hours, oem_recommended_life_hours)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                """, (machine_id, *part))
+
+        cursor.execute("SELECT COUNT(*) FROM machine_usage_snapshots WHERE machine_id = ?", (machine_id,))
+        if cursor.fetchone()[0] == 0:
+            for idx, snapshot in enumerate(usage_defaults.get(machine_id, [(2500, 300, 55), (2750, 320, 58), (2900, 335, 60)])):
+                runtime_hours, idle_hours, load_percent = snapshot
+                captured_at = (datetime.now() - timedelta(days=(2 - idx) * 7)).isoformat()
+                cursor.execute("""
+                    INSERT INTO machine_usage_snapshots
+                    (machine_id, runtime_hours, idle_hours, load_percent, captured_at)
+                    VALUES (?, ?, ?, ?, ?)
+                """, (machine_id, runtime_hours, idle_hours, load_percent, captured_at))
+
+        cursor.execute("SELECT COUNT(*) FROM manual_logs WHERE equipment_id = ?", (machine_id,))
+        if cursor.fetchone()[0] == 0 and machine_id in manual_defaults:
+            for idx, (operator, action, parts) in enumerate(manual_defaults[machine_id]):
+                timestamp = (datetime.now() - timedelta(hours=(idx + 1) * 9)).isoformat()
+                cursor.execute("""
+                    INSERT INTO manual_logs
+                    (equipment_id, timestamp, operator_name, action_taken, parts_replaced)
+                    VALUES (?, ?, ?, ?, ?)
+                """, (machine_id, timestamp, operator, action, parts))
+
+        if machine_id in incident_defaults:
+            cursor.execute("SELECT COUNT(*) FROM incident_reports_ai WHERE machine_id = ?", (machine_id,))
+            if cursor.fetchone()[0] == 0:
+                incident_type, severity, who_text, what_text, where_text, when_text, why_text, threat_signature = incident_defaults[machine_id]
+                cursor.execute("""
+                    INSERT INTO incident_reports_ai
+                    (machine_id, incident_type, severity, who_text, what_text, where_text, when_text, why_text, root_cause_summary, threat_signature, generated_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, (
+                    machine_id,
+                    incident_type,
+                    severity,
+                    who_text,
+                    what_text,
+                    where_text,
+                    when_text,
+                    why_text,
+                    why_text,
+                    threat_signature,
+                    datetime.now().isoformat()
+                ))
+
+    conn.commit()
+    conn.close()
+
+
+def seed_priority_scheduling_data():
+    """Seed priority scheduling inputs for the AI schedule tab."""
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute("SELECT id, name FROM equipment")
+    machines = cursor.fetchall()
+
+    priority_defaults = {
+        "CNC001": ("tier1", 5, 100000, 3, 0, "peak"),
+        "CONV01": ("tier2", 3, 45000, 2, 1, "normal"),
+        "HYD005": ("tier1", 4, 70000, 1, 0, "normal"),
+        "EXT002": ("tier3", 1, 15000, 0, 1, "low"),
+    }
+
+    safety_defaults = {
+        "CNC001": (18, 12, 2, (datetime.now() + timedelta(days=10)).date().isoformat(), 0),
+        "CONV01": (6, 2, 0, (datetime.now() + timedelta(days=20)).date().isoformat(), 0),
+        "HYD005": (15, 14, 1, (datetime.now() + timedelta(days=5)).date().isoformat(), 0),
+        "EXT002": (2, 1, 0, (datetime.now() + timedelta(days=45)).date().isoformat(), 0),
+    }
+
+    inventory_defaults = {
+        "CNC001": [("CNC-PMP-17", "Spindle Coolant Pump", 2, 6, "Warehouse A"), ("BRG-UNIT-B", "Bearing Unit-B", 1, 8, "Warehouse A")],
+        "CONV01": [("CNV-BELT-02", "Conveyor Belt Section", 3, 10, "Warehouse B")],
+        "HYD005": [("HYD-SEAL-11", "Seal Kit", 1, 6, "Warehouse C")],
+        "EXT002": [("EXT-SNS-05", "Thermal Sensor Node", 4, 4, "Warehouse D")],
+    }
+
+    technicians = [
+        ("TECH-001", "Sarah", "spindle", "specialist", 1),
+        ("TECH-002", "Ravi", "hydraulics", "specialist", 1),
+        ("TECH-003", "Meena", "conveyor", "advanced", 1),
+        ("TECH-004", "Anita", "general", "advanced", 0),
+    ]
+
+    tools = [
+        ("TOOL-ALIGN", "Laser Aligner", "CNC001", 1, None),
+        ("TOOL-THERM", "Thermal Camera", "HYD005", 1, None),
+        ("TOOL-BELT", "Belt Tension Gauge", "CONV01", 1, None),
+        ("TOOL-GENERAL", "General Service Kit", None, 1, None),
+    ]
+
+    for machine_id, machine_name in machines:
+        machine_class, criticality, downtime_cost, downstream_count, bypass_available, demand_level = priority_defaults.get(
+            machine_id, ("tier2", 3, 30000, 0, 1, "normal")
+        )
+        cursor.execute("""
+            INSERT OR IGNORE INTO asset_priority_profile
+            (machine_id, machine_class, criticality_score, downtime_cost_per_hour_inr, downstream_dependency_count, bypass_available, current_demand_level)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+        """, (machine_id, machine_class, criticality, downtime_cost, downstream_count, bypass_available, demand_level))
+
+        safety_score, env_score, near_miss, due_date, blocker = safety_defaults.get(
+            machine_id, (4, 1, 0, (datetime.now() + timedelta(days=30)).date().isoformat(), 0)
+        )
+        cursor.execute("""
+            INSERT OR IGNORE INTO safety_risk_profile
+            (machine_id, safety_risk_score, environmental_risk_score, near_miss_count_90d, compliance_due_date, regulatory_blocker)
+            VALUES (?, ?, ?, ?, ?, ?)
+        """, (machine_id, safety_score, env_score, near_miss, due_date, blocker))
+
+        cursor.execute("SELECT COUNT(*) FROM inventory_spares WHERE machine_id = ?", (machine_id,))
+        if cursor.fetchone()[0] == 0:
+            for part_code, part_name, qty_available, lead_time_hours, warehouse_location in inventory_defaults.get(machine_id, [(f"{machine_id}-KIT", f"{machine_name} Service Kit", 1, 12, "Warehouse Z")]):
+                cursor.execute("""
+                    INSERT INTO inventory_spares
+                    (machine_id, part_code, part_name, qty_available, lead_time_hours, warehouse_location)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                """, (machine_id, part_code, part_name, qty_available, lead_time_hours, warehouse_location))
+
+        cursor.execute("SELECT COUNT(*) FROM production_windows WHERE machine_id = ?", (machine_id,))
+        if cursor.fetchone()[0] == 0:
+            now = datetime.now()
+            windows = [
+                (now + timedelta(hours=1), now + timedelta(hours=3), "changeover", 0.95 if machine_id == "CNC001" else 0.7),
+                (now + timedelta(hours=8), now + timedelta(hours=12), "low_demand", 0.65 if machine_id != "CNC001" else 0.5),
+            ]
+            for window_start, window_end, window_type, opportunity_score in windows:
+                cursor.execute("""
+                    INSERT INTO production_windows
+                    (machine_id, window_start, window_end, window_type, opportunity_score)
+                    VALUES (?, ?, ?, ?, ?)
+                """, (machine_id, window_start.isoformat(), window_end.isoformat(), window_type, opportunity_score))
+
+    cursor.execute("SELECT COUNT(*) FROM technician_skills")
+    if cursor.fetchone()[0] == 0:
+        for technician in technicians:
+            cursor.execute("""
+                INSERT INTO technician_skills
+                (technician_id, technician_name, skill_code, certification_level, is_on_shift)
+                VALUES (?, ?, ?, ?, ?)
+            """, technician)
+
+    cursor.execute("SELECT COUNT(*) FROM tool_availability")
+    if cursor.fetchone()[0] == 0:
+        for tool in tools:
+            cursor.execute("""
+                INSERT INTO tool_availability
+                (tool_id, tool_name, machine_id, is_available, reserved_until)
+                VALUES (?, ?, ?, ?, ?)
+            """, tool)
+
+    conn.commit()
+    conn.close()
+
+def add_equipment(eq_id, name, line, protocol, agent_id=None, machine_class='Generic Industrial', is_bottleneck=0, quality_impact_score=0.0, mac_address=None, sensor_kind=None):
+    """
+    Onboards a new physical asset into the Sovereign Matrix.
+    """
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    try:
+        cursor.execute("""
+            INSERT OR REPLACE INTO equipment (id, name, production_line, protocol, agent_id, last_maintenance_date, next_scheduled_date, mtbf, machine_class, is_bottleneck, quality_impact_score, mac_address, sensor_kind)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (
+            eq_id, name, line, protocol, 
+            agent_id or f"agt-{eq_id}", 
+            datetime.now().date().isoformat(),
+            (datetime.now() + timedelta(days=90)).date().isoformat(),
+            5000,
+            machine_class,
+            is_bottleneck,
+            quality_impact_score,
+            mac_address,
+            sensor_kind
+        ))
+        conn.commit()
+        return True
+    except Exception as e:
+        print(f"Equipment Onboarding Error: {e}")
+        return False
+    finally:
+        conn.close()
+
+def update_machine_classes():
+    """Updates initial machines with specific classes for rerouting logic."""
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    classes = {
+        "CNC001": "CNC_LATHE_A1",
+        "CNC002": "CNC_LATHE_A1", # Candidate for rerouting
+        "CONV01": "ASSEMBLY_CONVEYOR_B1",
+        "HYD005": "HYDRAULIC_PRESS_C1",
+        "EXT002": "EXTRUSION_LINE_D1"
+    }
+    for eq_id, m_class in classes.items():
+        cursor.execute("UPDATE equipment SET machine_class = ? WHERE id = ?", (m_class, eq_id))
+    conn.commit()
+    conn.close()
+
+def get_all_equipment_metadata():
+    """Retrieves all registered equipment metadata."""
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM equipment")
+    rows = cursor.fetchall()
+    conn.close()
+    return [dict(row) for row in rows]
+
+def get_equipment_metadata(machine_id):
+    """Retrieves metadata for a specific machine."""
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM equipment WHERE id = ?", (machine_id,))
+    row = cursor.fetchone()
+    conn.close()
+    return dict(row) if row else None
+
+
+def log_manual_repair(eq_id, operator, action, parts="None", alert_id=None):
+    """
+    Records a human intervention in the Sovereign Ledger.
+    This data is the 'Ground Truth' for future AI reasoning.
+    """
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    try:
+        cursor.execute("""
+            INSERT INTO manual_logs (equipment_id, timestamp, operator_name, action_taken, parts_replaced, resolved_anomaly_id)
+            VALUES (?, ?, ?, ?, ?, ?)
+        """, (eq_id, datetime.now().isoformat(), operator, action, parts, alert_id))
+        conn.commit()
+        return cursor.lastrowid
+    except Exception as e:
+        print(f"Repair Log Error: {e}")
+        return None
+    finally:
+        conn.close()
+
+def add_parameter(machine_id, key, name, unit=None, **kwargs):
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cols = ['machine_id', 'parameter_key', 'display_name', 'unit'] + list(kwargs.keys())
+    vals = [machine_id, key, name, unit] + list(kwargs.values())
+    placeholders = ', '.join(['?'] * len(cols))
+    col_names = ', '.join(cols)
+    try:
+        cursor.execute(f"INSERT OR REPLACE INTO machine_parameters ({col_names}) VALUES ({placeholders})", vals)
+        conn.commit()
+        return True
+    except Exception as e:
+        print(f"Error adding parameter: {e}")
+        return False
+    finally:
+        conn.close()
+
+def get_machine_parameters(machine_id):
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM machine_parameters WHERE machine_id = ? ORDER BY display_order ASC", (machine_id,))
+    rows = cursor.fetchall()
+    conn.close()
+    return [dict(row) for row in rows]
+
+def save_custom_sensor(sensor_data: dict) -> bool:
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    try:
+        cursor.execute('''
+            INSERT OR REPLACE INTO custom_sensor_registry (
+                id, name, metric, unit, category, interface_type,
+                pin_esp32, pin_pi, pin_arduino, default_value,
+                normal_min, normal_max, warning_threshold, critical_threshold,
+                calibration_formula, description, code_snippet_c, code_snippet_py
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ''', (
+            sensor_data.get("id"),
+            sensor_data.get("name"),
+            sensor_data.get("metric"),
+            sensor_data.get("unit"),
+            sensor_data.get("category", "general"),
+            sensor_data.get("interface_type", "analog"),
+            sensor_data.get("pin_esp32", "GPIO 32"),
+            sensor_data.get("pin_pi", "GPIO 23"),
+            sensor_data.get("pin_arduino", "A2"),
+            float(sensor_data.get("default_value", 0.0) or 0.0),
+            float(sensor_data.get("normal_min", 0.0) or 0.0),
+            float(sensor_data.get("normal_max", 100.0) or 100.0),
+            float(sensor_data.get("warning_threshold", 80.0) or 80.0),
+            float(sensor_data.get("critical_threshold", 95.0) or 95.0),
+            sensor_data.get("calibration_formula", ""),
+            sensor_data.get("description", ""),
+            sensor_data.get("code_snippet_c", ""),
+            sensor_data.get("code_snippet_py", "")
+        ))
+        conn.commit()
+        return True
+    except Exception as e:
+        print(f"Error saving custom sensor: {e}")
+        return False
+    finally:
+        conn.close()
+
+def get_custom_sensors() -> list:
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM custom_sensor_registry ORDER BY name ASC")
+    rows = cursor.fetchall()
+    conn.close()
+    return [dict(row) for row in rows]
+
+def delete_custom_sensor(sensor_id: str) -> bool:
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    try:
+        cursor.execute("DELETE FROM custom_sensor_registry WHERE id = ?", (sensor_id,))
+        conn.commit()
+        return True
+    except Exception as e:
+        print(f"Error deleting custom sensor: {e}")
+        return False
+    finally:
+        conn.close()
+
+
+def get_machine_financials(machine_id):
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM machine_financials WHERE machine_id = ?", (machine_id,))
+    row = cursor.fetchone()
+    conn.close()
+    return dict(row) if row else None
+
+
+def get_spare_parts(machine_id):
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT * FROM spare_parts_catalog
+        WHERE machine_id = ?
+        ORDER BY planned_cost_inr DESC, id ASC
+    """, (machine_id,))
+    rows = cursor.fetchall()
+    conn.close()
+    return [dict(row) for row in rows]
+
+
+def get_latest_usage_snapshot(machine_id):
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT * FROM machine_usage_snapshots
+        WHERE machine_id = ?
+        ORDER BY captured_at DESC, id DESC
+        LIMIT 1
+    """, (machine_id,))
+    row = cursor.fetchone()
+    conn.close()
+    return dict(row) if row else None
+
+
+def get_usage_snapshots(machine_id, limit=12):
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT * FROM machine_usage_snapshots
+        WHERE machine_id = ?
+        ORDER BY captured_at DESC, id DESC
+        LIMIT ?
+    """, (machine_id, limit))
+    rows = cursor.fetchall()
+    conn.close()
+    return [dict(row) for row in rows]
+
+
+def get_incident_report_ai(machine_id):
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM incident_reports_ai WHERE machine_id = ?", (machine_id,))
+    row = cursor.fetchone()
+    conn.close()
+    return dict(row) if row else None
+
+
+def get_asset_priority_profile(machine_id):
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM asset_priority_profile WHERE machine_id = ?", (machine_id,))
+    row = cursor.fetchone()
+    conn.close()
+    return dict(row) if row else None
+
+
+def get_inventory_spares(machine_id):
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM inventory_spares WHERE machine_id = ? ORDER BY qty_available DESC, lead_time_hours ASC", (machine_id,))
+    rows = cursor.fetchall()
+    conn.close()
+    return [dict(row) for row in rows]
+
+
+def get_available_technicians():
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM technician_skills WHERE is_on_shift = 1")
+    rows = cursor.fetchall()
+    conn.close()
+    return [dict(row) for row in rows]
+
+
+def get_available_tools(machine_id=None):
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    cursor = conn.cursor()
+    if machine_id:
+        cursor.execute("""
+            SELECT * FROM tool_availability
+            WHERE is_available = 1 AND (machine_id = ? OR machine_id IS NULL)
+        """, (machine_id,))
+    else:
+        cursor.execute("SELECT * FROM tool_availability WHERE is_available = 1")
+    rows = cursor.fetchall()
+    conn.close()
+    return [dict(row) for row in rows]
+
+
+def get_production_windows(machine_id):
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT * FROM production_windows
+        WHERE machine_id = ?
+        ORDER BY window_start ASC
+    """, (machine_id,))
+    rows = cursor.fetchall()
+    conn.close()
+    return [dict(row) for row in rows]
+
+
+def get_safety_risk_profile(machine_id):
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM safety_risk_profile WHERE machine_id = ?", (machine_id,))
+    row = cursor.fetchone()
+    conn.close()
+    return dict(row) if row else None
+
+
+def upsert_incident_report_ai(machine_id, report):
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute("""
+        INSERT INTO incident_reports_ai
+        (machine_id, incident_type, severity, who_text, what_text, where_text, when_text, why_text, root_cause_summary, threat_signature, generated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(machine_id) DO UPDATE SET
+            incident_type = excluded.incident_type,
+            severity = excluded.severity,
+            who_text = excluded.who_text,
+            what_text = excluded.what_text,
+            where_text = excluded.where_text,
+            when_text = excluded.when_text,
+            why_text = excluded.why_text,
+            root_cause_summary = excluded.root_cause_summary,
+            threat_signature = excluded.threat_signature,
+            generated_at = excluded.generated_at
+    """, (
+        machine_id,
+        report.get("incident_type", "Unknown incident"),
+        report.get("severity", "medium"),
+        report.get("who_text"),
+        report.get("what_text"),
+        report.get("where_text"),
+        report.get("when_text"),
+        report.get("why_text"),
+        report.get("root_cause_summary"),
+        report.get("threat_signature"),
+        datetime.now().isoformat()
+    ))
+    conn.commit()
+    conn.close()
+
+def seed_common_parameters(machine_id):
+    """Seeds the 5 universal parameters for a new machine."""
+    commons = [
+        ('temperature', 'Temperature', '°C', 20, 80, 100, 120, 'above'),
+        ('vibration_rms', 'Vibration RMS', 'mm/s', 0, 2.5, 4.5, 6.0, 'above'),
+        ('pressure', 'Pressure', 'bar', 1, 10, 12, 15, 'above'),
+        ('rpm', 'RPM', 'RPM', 0, 3000, 3500, 4000, 'above'),
+        ('current_draw', 'Current Draw', 'A', 0, 50, 60, 75, 'above')
+    ]
+    for key, name, unit, n_min, n_max, w_th, c_th, direction in commons:
+        add_parameter(machine_id, key, name, unit, 
+                      category='common', normal_min=n_min, normal_max=n_max, 
+                      warning_threshold=w_th, critical_threshold=c_th, direction=direction)
+
+def log_telemetry_point(machine_id, key, value, string_value=None, timestamp=None):
+    ts_str = timestamp or datetime.now().isoformat()
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute(
+        "INSERT INTO telemetry_readings (machine_id, parameter_key, value, string_value, timestamp) VALUES (?, ?, ?, ?, ?)",
+        (machine_id, key, value, string_value, ts_str)
+    )
+    conn.commit()
+    conn.close()
+
+    # Enterprise TimescaleDB Hypertable Sync
+    try:
+        from src.data.timescale_adapter import timescale_engine
+        if timescale_engine.is_connected:
+            try:
+                dt = datetime.fromisoformat(ts_str)
+            except Exception:
+                dt = datetime.now()
+            timescale_engine.insert_batch([(dt, machine_id, key, value, string_value)])
+    except Exception:
+        pass
+
+
+def log_telemetry_points_batch(machine_id, points_dict, timestamp=None):
+    """Logs multiple telemetry parameters in a single high-throughput atomic SQLite transaction."""
+    if not points_dict:
+        return
+    ts_str = timestamp or datetime.now().isoformat()
+    rows = []
+    timescale_points = []
+    
+    dt = None
+    try:
+        dt = datetime.fromisoformat(ts_str)
+    except Exception:
+        dt = datetime.now()
+
+    for key, value in points_dict.items():
+        if value is None:
+            continue
+        if isinstance(value, (int, float)) and not isinstance(value, bool):
+            rows.append((machine_id, key, float(value), None, ts_str))
+            timescale_points.append((dt, machine_id, key, float(value), None))
+        else:
+            try:
+                f_val = float(value)
+                rows.append((machine_id, key, f_val, None, ts_str))
+                timescale_points.append((dt, machine_id, key, f_val, None))
+            except (TypeError, ValueError):
+                rows.append((machine_id, key, None, str(value), ts_str))
+                timescale_points.append((dt, machine_id, key, None, str(value)))
+
+    if rows:
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+        cursor.executemany(
+            "INSERT INTO telemetry_readings (machine_id, parameter_key, value, string_value, timestamp) VALUES (?, ?, ?, ?, ?)",
+            rows
+        )
+        conn.commit()
+        conn.close()
+
+    if timescale_points:
+        try:
+            from src.data.timescale_adapter import timescale_engine
+            if timescale_engine.is_connected:
+                timescale_engine.insert_batch(timescale_points)
+        except Exception:
+            pass
+
+
+def log_sensor_reading(eq_id, temp, vib, timestamp=None):
+    """
+    Logs raw telemetry data and performs sub-millisecond Edge analysis via Rust.
+    """
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    
+    # 1. Edge Intelligence: High-Frequency Harmonics Check (Rust-Powered)
+    # In a real CNC environment, this would run on the Edge IPC
+    try:
+        from src.data.analytics import calculate_failure_probability
+        # Fetch last 50 points to check for harmonic resonance
+        cursor.execute("SELECT vibration FROM sensor_readings WHERE equipment_id = ? ORDER BY timestamp DESC LIMIT 50", (eq_id,))
+        recent_vib = [r[0] for r in cursor.fetchall()]
+        if len(recent_vib) > 10 and rust_engine:
+            st = rust_engine.SegmentTree(recent_vib + [vib])
+            peak_vib = st.query_max(0, len(recent_vib) + 1)
+            # If peak vibration in window exceeds CNC precision threshold (e.g. 1.5G)
+            if peak_vib > 1.5:
+                 print(f"⚠️ [EDGE AI] RESONANCE DETECTED ({eq_id}): PEAK {peak_vib}G")
+    except:
+        pass
+
+    cursor.execute(
+        "INSERT INTO sensor_readings (equipment_id, timestamp, temperature, vibration) VALUES (?, ?, ?, ?)",
+        (eq_id, timestamp or datetime.now().isoformat(), temp, vib)
+    )
+    conn.commit()
+    conn.close()
+
+def log_ai_alert(eq_id, severity, reason, prescription):
+    """Logs AI strategic prescriptions. This is what the dashboard pulls from."""
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute(
+        "INSERT INTO ai_alerts (equipment_id, timestamp, severity, reason, prescription) VALUES (?, ?, ?, ?, ?)",
+        (eq_id, datetime.now().isoformat(), severity, reason, prescription)
+    )
+    new_id = cursor.lastrowid
+    conn.commit()
+    conn.close()
+    return new_id
+
+def log_alert_feedback(alert_id, score, notes=None):
+    """Logs technician feedback on a specific AI alert to improve ground truth."""
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute(
+        "UPDATE ai_alerts SET feedback_score = ?, feedback_notes = ? WHERE id = ?",
+        (score, notes, alert_id)
+    )
+    conn.commit()
+    conn.close()
+    return True
+
+def get_last_alert_timestamp(equipment_id):
+    """
+    Returns the Unix timestamp of the last AI alert for a specific machine.
+    Used by the Ingestor to enforce cooldown protocols and save tokens.
+    """
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT timestamp FROM ai_alerts
+        WHERE equipment_id = ?
+        ORDER BY timestamp DESC LIMIT 1
+    """, (equipment_id,))
+    row = cursor.fetchone()
+    conn.close()
+
+    if row:
+        try:
+            # Convert ISO 8601 string back to timestamp
+            dt = datetime.fromisoformat(row[0])
+            return dt.timestamp()
+        except Exception:
+            return 0
+    return 0
+
+def get_machine_class(machine_id):
+    """Retrieves the machine class/type for an asset."""
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute("SELECT machine_class FROM equipment WHERE id = ?", (machine_id,))
+    row = cursor.fetchone()
+    conn.close()
+    return row[0] if row else "Generic Industrial"
+def get_recent_readings(limit=100):
+    """Retrieves chronological telemetry for frontend charting."""
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM sensor_readings ORDER BY timestamp DESC LIMIT ?", (limit,))
+    rows = cursor.fetchall()
+    conn.close()
+    return rows
+
+def get_latest_alerts(limit=10):
+    """Retrieves high-priority AI prescriptions for the dashboard notifications."""
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM ai_alerts ORDER BY timestamp DESC LIMIT ?", (limit,))
+    rows = cursor.fetchall()
+    conn.close()
+    return rows
+
+if __name__ == "__main__":
+    init_db()
+    print(f"--- [SOVEREIGN DB] Initialized at {DB_PATH} ---")

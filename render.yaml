@@ -1,0 +1,61 @@
+databases:
+  # --- ENTERPRISE POSTGRESQL DATABASE ---
+  - name: predmaint-db
+    databaseName: predictmaint
+    user: predictmaint
+    plan: free
+    region: oregon
+
+services:
+  # --- BACKEND (FastAPI + Rust Engine + Redis + PostgreSQL/SQLite) ---
+  - type: web
+    name: predmaint-api
+    env: docker
+    plan: free
+    region: oregon
+    healthCheckPath: /api/system/health
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: predmaint-db
+          property: connectionString
+      - key: REDIS_HOST
+        value: localhost
+      - key: JWT_SECRET_KEY
+        generateValue: true
+      - key: GROQ_API_KEY
+        sync: false
+      - key: GROK_API_KEY
+        sync: false
+      - key: PINECONE_API_KEY
+        sync: false
+      - key: SARVAM_API_KEY
+        sync: false
+      - key: TWILIO_ACCOUNT_SID
+        sync: false
+      - key: TWILIO_AUTH_TOKEN
+        sync: false
+      - key: TWILIO_FROM_NUMBER
+        sync: false
+    # To enable a 1GB persistent disk for SQLite, change plan to "starter" and uncomment:
+    # disk:
+    #   name: predmaint-data
+    #   mountPath: /app/data
+    #   sizeGB: 1
+
+  # --- FRONTEND (Next.js Web Application) ---
+  - type: web
+    name: predmaint
+    env: node
+    plan: free
+    region: oregon
+    buildCommand: cd frontend && npm install && npm run build
+    startCommand: cd frontend && npm start
+    envVars:
+      - key: NODE_VERSION
+        value: 20.18.0
+      - key: NEXT_PUBLIC_API_URL
+        fromService:
+          type: web
+          name: predmaint-api
+          property: url

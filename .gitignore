@@ -1,0 +1,43 @@
+# Environments
+.env
+.venv/
+venv/
+env/
+
+# Python Cache
+__pycache__/
+*.pyc
+
+# Local Logs & Data
+*.log
+archive/
+data/*.db
+data/*.db.bak
+data/*.json.tmp
+data/iot_stream.json
+demo_data/
+simulator.log
+
+# Testing Temporary Data
+tests/unit/test_data_tmp.json
+
+# IDEs
+.vscode/
+.idea/
+
+# Rust & Node Build Artifacts
+**/target/
+**/node_modules/
+**/.next/
+*.rdb
+
+# LaTeX Auxiliary Files
+*.aux
+*.toc
+*.lof
+*.lot
+*.out
+*.fls
+*.fdb_latexmk
+*.synctex.gz
+

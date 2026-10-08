@@ -1,0 +1,34 @@
+# Core Dependencies
+pydantic
+python-dotenv
+requests
+httpx
+redis
+python-jose[cryptography]
+passlib[bcrypt]
+websockets
+google-genai
+groq
+pinecone
+sarvamai
+twilio
+# Data & Visualisation
+streamlit
+pandas
+plotly
+paho-mqtt
+fastapi
+uvicorn[standard]
+numpy
+python-multipart
+# Database & OCR
+psycopg2-binary
+asyncpg
+pytesseract
+pillow
+boto3
+pypdf
+# Local Development
+# ollama (handled via direct API)
+mistralai
+
