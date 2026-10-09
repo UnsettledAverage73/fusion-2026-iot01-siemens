@@ -30,7 +30,12 @@ from src.data.database import (
 from src.services.machine_insights import get_machine_insights
 from src.services.priority_scheduler import generate_prioritized_schedule
 from src.services.stream_hub import handle_multiplex_stream
-from src.notifications.whatsapp import get_config, save_config
+from src.notifications.whatsapp import get_config, save_config, send_whatsapp_alert
+from src.services.alerts import create_ai_alert
+
+# In-memory tracking for IoT parameter threshold alerting & WhatsApp dispatch cooldown
+_last_temp_alert_time: Dict[str, float] = {}
+_last_temp_alert_level: Dict[str, str] = {}
 
 # Path Configurations
 DATA_PATH = "data/sample_maintenance_data.json"
@@ -125,6 +130,7 @@ class ConnectedSensorResponse(BaseModel):
     status: str
 
 class IoTIngestRequest(BaseModel):
+    model_config = {"extra": "allow"}
     equipment_id: str
     mac_address: Optional[str] = None
     sensor_kind: Optional[str] = None
@@ -132,6 +138,15 @@ class IoTIngestRequest(BaseModel):
     temperature: Optional[float] = None
     humidity: Optional[float] = None
     vibration: Optional[float] = None
+    vibration_rms: Optional[float] = None
+    current_draw: Optional[float] = None
+    rpm: Optional[float] = None
+    push_button: Optional[float] = None
+    button: Optional[float] = None
+    hall_flux: Optional[float] = None
+    buzzer: Optional[float] = None
+    voltage: Optional[float] = None
+    frequency: Optional[float] = None
     parameters: Optional[Dict[str, Any]] = None
     source: Optional[str] = "esp32"
 
@@ -967,7 +982,11 @@ async def ingest_iot_telemetry(request: IoTIngestRequest):
 
     telemetry_fields = payload.get("parameters") or {}
     telemetry_fields = {**telemetry_fields}
-    for key in ("temperature", "humidity", "vibration", "vibration_rms", "pressure", "rpm", "current_draw", "status", "telemetry_status"):
+    for key in (
+        "temperature", "humidity", "vibration", "vibration_rms",
+        "pressure", "rpm", "current_draw", "status", "telemetry_status",
+        "push_button", "button", "hall_flux", "buzzer", "voltage", "frequency"
+    ):
         if key in payload and key not in telemetry_fields:
             telemetry_fields[key] = payload[key]
 
@@ -982,6 +1001,43 @@ async def ingest_iot_telemetry(request: IoTIngestRequest):
 
     payload["parameters"] = telemetry_fields
     payload["timestamp"] = timestamp
+
+    # Real-Time Temperature Evaluation for Physical Hardware Telemetry:
+    # Thresholds: < 30.0°C Healthy | 30.0°C - 35.0°C Medium/Warning | > 35.0°C Critical (WhatsApp Dispatch)
+    if temp is not None:
+        now_ts = time.time()
+        last_ts = _last_temp_alert_time.get(equipment_id, 0.0)
+        last_lvl = _last_temp_alert_level.get(equipment_id, "NORMAL")
+        cooldown_sec = 45.0  # 45-second cooldown between duplicate WhatsApp notifications
+
+        if temp > 35.0:
+            # CRITICAL BREACH
+            if (now_ts - last_ts > cooldown_sec) or last_lvl != "CRITICAL":
+                alert_reason = f"Temperature CRITICAL: {temp:.1f}°C exceeded maximum safety threshold of 35.0°C"
+                alert_prescription = "Emergency thermal protection triggered. Inspect thermal load on node, verify ventilation fan, and throttle ESP32 operation immediately."
+                print(f"🚨 [INGEST ALERT - CRITICAL] {equipment_id}: {alert_reason}")
+                try:
+                    create_ai_alert(equipment_id, "CRITICAL", alert_reason, alert_prescription)
+                except Exception as alert_err:
+                    print(f"Error logging critical alert: {alert_err}")
+                _last_temp_alert_time[equipment_id] = now_ts
+                _last_temp_alert_level[equipment_id] = "CRITICAL"
+        elif temp > 30.0:
+            # MEDIUM WARNING BREACH (30°C - 35°C)
+            if (now_ts - last_ts > cooldown_sec) and last_lvl != "WARNING":
+                alert_reason = f"Temperature WARNING (Medium): {temp:.1f}°C is in elevated range (30.0°C - 35.0°C)"
+                alert_prescription = "Thermal rise detected above 30.0°C baseline. Ensure ambient airflow and monitor thermal trajectory."
+                print(f"⚠️ [INGEST ALERT - WARNING] {equipment_id}: {alert_reason}")
+                try:
+                    create_ai_alert(equipment_id, "WARNING", alert_reason, alert_prescription)
+                except Exception as alert_err:
+                    print(f"Error logging warning alert: {alert_err}")
+                _last_temp_alert_time[equipment_id] = now_ts
+                _last_temp_alert_level[equipment_id] = "WARNING"
+        else:
+            # HEALTHY / NORMAL (< 30°C)
+            if last_lvl in ("CRITICAL", "WARNING"):
+                _last_temp_alert_level[equipment_id] = "NORMAL"
 
     try:
         await asyncio.wait_for(r.publish(REDIS_CHANNEL, json.dumps(payload)), timeout=0.1)

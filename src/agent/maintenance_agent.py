@@ -71,7 +71,8 @@ class MaintenanceAgent:
             self.groq_client = None
 
         # Cloud Reasoning Engine: Grok (xAI)
-        self.grok_key = os.getenv("GROK_API_KEY") or os.getenv("XAI_API_KEY")
+        raw_grok = os.getenv("GROK_API_KEY") or os.getenv("XAI_API_KEY")
+        self.grok_key = raw_grok if (raw_grok and not raw_grok.startswith("gsk_")) else None
         self.grok_base_url = os.getenv("GROK_BASE_URL", "https://api.x.ai/v1")
         self.grok_model = os.getenv("GROK_MODEL", "grok-2-latest")
 
@@ -90,9 +91,15 @@ class MaintenanceAgent:
         # Vector DB Configuration (Pinecone)
         self.pc_key = os.getenv("PINECONE_API_KEY")
         self.index_name = "maintenance-logs"
+        self.index = None
         if self.pc_key and Pinecone:
-            self.pc = Pinecone(api_key=self.pc_key)
-            self._init_pinecone()
+            try:
+                import threading
+                self.pc = Pinecone(api_key=self.pc_key)
+                threading.Thread(target=self._init_pinecone, daemon=True).start()
+            except Exception as pc_err:
+                print(f"Pinecone background init notice: {pc_err}")
+                self.pc = None
         else:
             self.pc = None
 
