@@ -2,6 +2,7 @@
 
 import { startTransition, useEffect, useMemo, useState } from "react";
 import { MachineUsageChart } from "@/components/charts/MachineUsageChart";
+import { AdvancedIndustrialMonitoringMatrix } from "@/components/charts/AdvancedIndustrialMonitoringMatrix";
 import { VirtualMachineGrid } from "@/components/machines/VirtualMachineGrid";
 import { Machine, Alert } from "@/types";
 import { Activity, AlertTriangle, ArrowRight, Calendar, FileText, Radar, Settings2, ShieldCheck, Sparkles, Wifi, Radio, Cpu, Zap, Gauge, CheckCircle2, BarChart3, Usb } from "lucide-react";
@@ -833,6 +834,8 @@ export default function DashboardPage() {
               </div>
             )}
           </section>
+
+          <AdvancedIndustrialMonitoringMatrix />
 
           <MachineUsageChart />
           

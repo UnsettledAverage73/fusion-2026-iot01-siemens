@@ -7,8 +7,18 @@ import { api } from "@/lib/api";
 export function DashboardHeader() {
   const [alertCount, setAlertCount] = useState(0);
   const [sensorState, setSensorState] = useState<"loading" | "live" | "registered" | "offline">("loading");
+  const [currentUser, setCurrentUser] = useState<{ name?: string; email?: string; picture?: string; role?: string } | null>(null);
 
   useEffect(() => {
+    try {
+      const rawUser = window.localStorage.getItem('auth_user');
+      if (rawUser) {
+        setCurrentUser(JSON.parse(rawUser));
+      }
+    } catch {
+      // ignore
+    }
+
     const syncCount = () => {
       const value = window.localStorage.getItem('command-palette-alert-count');
       setAlertCount(value ? Number(value) || 0 : 0);
@@ -109,12 +119,22 @@ export function DashboardHeader() {
           )}
         </button>
         <div className="flex items-center gap-3 rounded-full border border-white/8 bg-white/4 py-1.5 pl-1.5 pr-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.05)]">
-          <div className="flex h-10 w-10 items-center justify-center rounded-full bg-[linear-gradient(135deg,rgba(0,212,170,0.95),rgba(56,189,248,0.92))] text-sm font-bold text-black shadow-[0_10px_30px_-16px_rgba(0,212,170,0.9)]">
-            AD
-          </div>
+          {currentUser?.picture ? (
+            <img
+              src={currentUser.picture}
+              alt={currentUser.name || "User"}
+              className="h-10 w-10 rounded-full object-cover border border-[var(--color-primary)]/40 shadow-[0_0_15px_rgba(0,212,170,0.3)]"
+            />
+          ) : (
+            <div className="flex h-10 w-10 items-center justify-center rounded-full bg-[linear-gradient(135deg,rgba(0,212,170,0.95),rgba(56,189,248,0.92))] text-sm font-bold text-black shadow-[0_10px_30px_-16px_rgba(0,212,170,0.9)]">
+              {currentUser?.name ? currentUser.name.slice(0, 2).toUpperCase() : "AD"}
+            </div>
+          )}
           <div className="hidden xl:block">
-            <p className="text-sm font-semibold leading-tight">A. Director</p>
-            <p className="text-[11px] uppercase tracking-[0.22em] text-[var(--color-muted)]">Plant Control</p>
+            <p className="text-sm font-semibold leading-tight">{currentUser?.name || "A. Director"}</p>
+            <p className="text-[11px] uppercase tracking-[0.22em] text-[var(--color-muted)]">
+              {currentUser?.role || "Plant Control"}
+            </p>
           </div>
         </div>
       </div>

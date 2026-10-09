@@ -70,3 +70,25 @@ def authenticate_user(username, password):
     if not verify_password(password, user_dict["password_hash"]):
         return None
     return User(username=user_dict["username"])
+
+def verify_google_token(credential: str) -> Optional[dict]:
+    """Verifies a Google OAuth2 ID Token from frontend Google Sign-In."""
+    client_id = os.getenv("GOOGLE_CLIENT_ID", "218445100199-51vcmpcm18quqb2svce2e13jettspsfo.apps.googleusercontent.com")
+    try:
+        from google.oauth2 import id_token
+        from google.auth.transport import requests as google_requests
+        idinfo = id_token.verify_oauth2_token(credential, google_requests.Request(), client_id)
+        return idinfo
+    except Exception as e:
+        # Fallback to direct tokeninfo verification endpoint
+        try:
+            import requests
+            resp = requests.get(f"https://oauth2.googleapis.com/tokeninfo?id_token={credential}", timeout=5)
+            if resp.status_code == 200:
+                data = resp.json()
+                if not client_id or data.get("aud") == client_id:
+                    return data
+        except Exception:
+            pass
+        return None
+

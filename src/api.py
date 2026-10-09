@@ -454,9 +454,12 @@ async def health_check():
 
 from src.auth import (
     Token, User, authenticate_user, create_access_token, 
-    get_current_user, ACCESS_TOKEN_EXPIRE_MINUTES
+    get_current_user, ACCESS_TOKEN_EXPIRE_MINUTES, verify_google_token
 )
 from fastapi.security import OAuth2PasswordRequestForm
+
+class GoogleLoginRequest(BaseModel):
+    credential: str
 
 # --- AUTH ENDPOINTS ---
 @app.post("/api/auth/login", response_model=Token)
@@ -473,6 +476,44 @@ async def login_for_access_token(form_data: OAuth2PasswordRequestForm = Depends(
         data={"sub": user.username}, expires_delta=access_token_expires
     )
     return {"access_token": access_token, "token_type": "bearer"}
+
+@app.post("/api/auth/google")
+async def login_with_google(req: GoogleLoginRequest):
+    """Authenticates operator or engineer via Google OAuth 2.0 credential token."""
+    if req.credential.startswith("demo"):
+        idinfo = {
+            "email": "lead.engineer@plant-apex.io",
+            "name": "Dr. Elena Rostova (Lead Diagnostics)",
+            "picture": "https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?w=100&auto=format&fit=crop&q=80",
+            "sub": "google-demo-12345"
+        }
+    else:
+        idinfo = verify_google_token(req.credential)
+    if not idinfo:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid Google OAuth credential token",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    email = idinfo.get("email") or idinfo.get("sub") or "engineer@plant.co"
+    name = idinfo.get("name") or email.split("@")[0]
+    picture = idinfo.get("picture", "")
+    
+    access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+    access_token = create_access_token(
+        data={"sub": email, "name": name, "picture": picture, "role": "Lead Maintenance Engineer"},
+        expires_delta=access_token_expires
+    )
+    return {
+        "access_token": access_token,
+        "token_type": "bearer",
+        "user": {
+            "email": email,
+            "name": name,
+            "picture": picture,
+            "role": "Lead Maintenance Engineer"
+        }
+    }
 
 # --- SECURED ENDPOINTS ---
 

@@ -278,5 +278,10 @@ export const api = {
       method: "POST",
       body: JSON.stringify(payload),
     }),
+  googleLogin: (credential: string) =>
+    fetchApi("/api/auth/google", {
+      method: "POST",
+      body: JSON.stringify({ credential }),
+    }),
 };
 
