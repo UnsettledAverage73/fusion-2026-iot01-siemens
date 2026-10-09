@@ -1,0 +1,234 @@
+{
+  "topology": {
+    "substation_id": "SUB-SIEMENS-400KV-NORTH",
+    "nodes": {
+      "INCOMER_HV": {
+        "type": "grid_incomer",
+        "label": "400kV HV Incomer",
+        "x": 0.1,
+        "y": 0.5,
+        "weight": 0.5
+      },
+      "CB_01": {
+        "type": "circuit_breaker",
+        "label": "CB-01 (Incomer Breaker)",
+        "x": 0.25,
+        "y": 0.5,
+        "weight": 0.35
+      },
+      "TRANSFORMER_T1": {
+        "type": "transformer",
+        "label": "Transformer T1 (315 MVA)",
+        "x": 0.45,
+        "y": 0.7,
+        "weight": 0.45
+      },
+      "TRANSFORMER_T2": {
+        "type": "transformer",
+        "label": "Transformer T2 (315 MVA)",
+        "x": 0.45,
+        "y": 0.3,
+        "weight": 0.45
+      },
+      "BUS_A": {
+        "type": "busbar",
+        "label": "Main Busbar A (220kV)",
+        "x": 0.65,
+        "y": 0.7,
+        "weight": 0.3
+      },
+      "BUS_B": {
+        "type": "busbar",
+        "label": "Transfer Busbar B (220kV)",
+        "x": 0.65,
+        "y": 0.3,
+        "weight": 0.3
+      },
+      "CB_02": {
+        "type": "circuit_breaker",
+        "label": "CB-02 (Feeder-1 Breaker)",
+        "x": 0.8,
+        "y": 0.7,
+        "weight": 0.2
+      },
+      "CB_03": {
+        "type": "circuit_breaker",
+        "label": "CB-03 (Feeder-2 Breaker)",
+        "x": 0.8,
+        "y": 0.3,
+        "weight": 0.2
+      },
+      "FEEDER_F1": {
+        "type": "feeder",
+        "label": "Feeder F1 (Industrial)",
+        "x": 0.95,
+        "y": 0.7,
+        "weight": 0.15
+      },
+      "FEEDER_F2": {
+        "type": "feeder",
+        "label": "Feeder F2 (Urban Grid)",
+        "x": 0.95,
+        "y": 0.3,
+        "weight": 0.15
+      }
+    },
+    "edges": [
+      [
+        "INCOMER_HV",
+        "CB_01"
+      ],
+      [
+        "CB_01",
+        "TRANSFORMER_T1"
+      ],
+      [
+        "CB_01",
+        "TRANSFORMER_T2"
+      ],
+      [
+        "TRANSFORMER_T1",
+        "BUS_A"
+      ],
+      [
+        "TRANSFORMER_T2",
+        "BUS_B"
+      ],
+      [
+        "BUS_A",
+        "CB_02"
+      ],
+      [
+        "BUS_B",
+        "CB_03"
+      ],
+      [
+        "CB_02",
+        "FEEDER_F1"
+      ],
+      [
+        "CB_03",
+        "FEEDER_F2"
+      ]
+    ]
+  },
+  "sample_evaluation": {
+    "substation_risk_score": 58.2,
+    "overall_status": "WARNING",
+    "assets": {
+      "INCOMER_HV": {
+        "label": "400kV HV Incomer",
+        "type": "grid_incomer",
+        "health_index": 98.0,
+        "fault_probability": 0.02,
+        "status": "HEALTHY",
+        "color": "#10b981",
+        "top_drivers": [
+          "Nominal operation"
+        ]
+      },
+      "CB_01": {
+        "label": "CB-01 (Incomer Breaker)",
+        "type": "circuit_breaker",
+        "health_index": 61.0,
+        "fault_probability": 0.62,
+        "status": "WARNING",
+        "color": "#f59e0b",
+        "top_drivers": [
+          "Terminal Temp Spike (+78C)",
+          "Current Surge"
+        ]
+      },
+      "TRANSFORMER_T1": {
+        "label": "Transformer T1 (315 MVA)",
+        "type": "transformer",
+        "health_index": 38.0,
+        "fault_probability": 0.89,
+        "status": "CRITICAL_IMMINENT_FAILURE",
+        "color": "#ef4444",
+        "top_drivers": [
+          "Ethylene C2H4 (+480 ppm)",
+          "Top Oil Temp (>94C)",
+          "Duval Area: T3"
+        ]
+      },
+      "TRANSFORMER_T2": {
+        "label": "Transformer T2 (315 MVA)",
+        "type": "transformer",
+        "health_index": 92.0,
+        "fault_probability": 0.05,
+        "status": "HEALTHY",
+        "color": "#10b981",
+        "top_drivers": [
+          "Nominal operation"
+        ]
+      },
+      "BUS_A": {
+        "label": "Main Busbar A (220kV)",
+        "type": "busbar",
+        "health_index": 99.0,
+        "fault_probability": 0.01,
+        "status": "HEALTHY",
+        "color": "#10b981",
+        "top_drivers": [
+          "Nominal operation"
+        ]
+      },
+      "BUS_B": {
+        "label": "Transfer Busbar B (220kV)",
+        "type": "busbar",
+        "health_index": 99.0,
+        "fault_probability": 0.01,
+        "status": "HEALTHY",
+        "color": "#10b981",
+        "top_drivers": [
+          "Nominal operation"
+        ]
+      },
+      "CB_02": {
+        "label": "CB-02 (Feeder-1 Breaker)",
+        "type": "circuit_breaker",
+        "health_index": 93.0,
+        "fault_probability": 0.04,
+        "status": "HEALTHY",
+        "color": "#10b981",
+        "top_drivers": [
+          "Nominal operation"
+        ]
+      },
+      "CB_03": {
+        "label": "CB-03 (Feeder-2 Breaker)",
+        "type": "circuit_breaker",
+        "health_index": 96.0,
+        "fault_probability": 0.03,
+        "status": "HEALTHY",
+        "color": "#10b981",
+        "top_drivers": [
+          "Nominal operation"
+        ]
+      },
+      "FEEDER_F1": {
+        "label": "Feeder F1 (Industrial)",
+        "type": "feeder",
+        "health_index": 97.0,
+        "fault_probability": 0.02,
+        "status": "HEALTHY",
+        "color": "#10b981",
+        "top_drivers": [
+          "Nominal operation"
+        ]
+      },
+      "FEEDER_F2": {
+        "label": "Feeder F2 (Urban Grid)",
+        "type": "feeder",
+        "health_index": 95.0,
+        "fault_probability": 0.03,
+        "status": "HEALTHY",
+        "color": "#10b981",
+        "top_drivers": [
+          "Nominal operation"
+        ]
+      }
+    }
+  }
+}

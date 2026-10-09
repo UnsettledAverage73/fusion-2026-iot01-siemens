@@ -41,3 +41,5 @@ tests/unit/test_data_tmp.json
 *.fdb_latexmk
 *.synctex.gz
 
+# Substation PDM Report
+*substation_pdm_report*

@@ -16,6 +16,7 @@ from src.agent.maintenance_agent import MaintenanceAgent
 from src.data.analytics import calculate_failure_probability
 from src.agent.reporter import SovereignReporter
 from src.agent.cloud_provisioner import router as cloud_router
+from src.services.substation_router import router as substation_router
 from src.data.database import (
     init_db,
     log_alert_feedback,
@@ -395,6 +396,7 @@ reporter = SovereignReporter()
 
 # Include Routers
 app.include_router(cloud_router)
+app.include_router(substation_router)
 
 # --- SYSTEM HEALTH & MONITORING ENDPOINTS ---
 @app.get("/health")
