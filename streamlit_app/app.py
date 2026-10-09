@@ -385,33 +385,31 @@ elif mode == "📡 Live Telemetry Stream & Random Dataset Replay (Testing Set)":
                 with g_col1:
                     st.markdown("##### 1. Normalized Sensor Anomaly Deviation from Baseline (Z-Score)")
                     # Compute deviation for all electrical and operational features
-                    baseline_means = {
-                        "Voltage(V)": 230.0,
-                        "Current(A)": 35.0,
-                        "Temperature(C)": 45.0,
-                        "Frequency(Hz)": 50.0,
-                        "Power_Factor": 0.95,
-                        "Vibration_Level": 1.5,
-                        "Load_Variation(%)": 15.0,
-                        "Anomaly_Score": 0.20
-                    }
-                    baseline_stds = {
-                        "Voltage(V)": 4.5,
-                        "Current(A)": 10.0,
-                        "Temperature(C)": 8.0,
-                        "Frequency(Hz)": 0.15,
-                        "Power_Factor": 0.05,
-                        "Vibration_Level": 1.5,
-                        "Load_Variation(%)": 8.0,
-                        "Anomaly_Score": 0.15
-                    }
+                    # Dynamically calculate baseline statistics directly from dataset if available
+                    if df_term_data is not None:
+                        healthy_subset = df_term_data[df_term_data['Fault_Status'] == 0]
+                        baseline_means = healthy_subset.mean().to_dict()
+                        baseline_stds = healthy_subset.std().replace(0, 1.0).to_dict()
+                    else:
+                        baseline_means = {
+                            "Voltage(V)": 230.19, "Current(A)": 5.10, "Temperature(C)": 45.0,
+                            "Frequency(Hz)": 50.0, "Power_Factor": 0.95, "Vibration_Level": 1.95,
+                            "Load_Variation(%)": 14.8, "Anomaly_Score": 75.0
+                        }
+                        baseline_stds = {
+                            "Voltage(V)": 9.8, "Current(A)": 1.5, "Temperature(C)": 7.8,
+                            "Frequency(Hz)": 0.3, "Power_Factor": 0.03, "Vibration_Level": 0.5,
+                            "Load_Variation(%)": 5.0, "Anomaly_Score": 34.0
+                        }
                     
                     dev_labels = []
                     dev_scores = []
                     dev_colors = []
-                    for k in baseline_means:
+                    for k in ["Voltage(V)", "Current(A)", "Temperature(C)", "Frequency(Hz)", "Power_Factor", "Vibration_Level", "Load_Variation(%)", "Anomaly_Score"]:
                         val = float(row[k])
-                        z = abs(val - baseline_means[k]) / baseline_stds[k]
+                        m = baseline_means.get(k, 1.0)
+                        s = baseline_stds.get(k, 1.0) if baseline_stds.get(k, 1.0) > 1e-4 else 1.0
+                        z = abs(val - m) / s
                         dev_labels.append(k.split("(")[0])
                         dev_scores.append(round(z, 2))
                         if z > 2.5:
@@ -437,16 +435,16 @@ elif mode == "📡 Live Telemetry Stream & Random Dataset Replay (Testing Set)":
                     # Synthesize smooth trend culminating in current sample
                     t_steps = np.arange(-9, 1)
                     t_val = float(row["Temperature(C)"])
-                    v_val = float(row["Vibration_Level"])
                     
-                    t_traj = np.linspace(max(25, t_val - 20), t_val, 10) + np.random.normal(0, 0.8, 10)
+                    t_traj = np.linspace(max(20, t_val - 15), t_val, 10) + np.random.normal(0, 0.5, 10)
                     t_traj[-1] = t_val
                     
                     fig_traj, ax_traj = plt.subplots(figsize=(6, 4.0))
                     ax_traj.set_facecolor('#0f172a')
                     fig_traj.patch.set_facecolor('#0f172a')
                     ax_traj.plot(t_steps, t_traj, color='#38bdf8', marker='o', lw=2, label='Temperature (°C)')
-                    ax_traj.axhline(75.0, color='#ef4444', linestyle='--', label='Max Thermal Limit (IEC 62271)')
+                    ax_traj.axhline(60.0, color='#f59e0b', linestyle=':', label='IEC Warning Limit (60°C)')
+                    ax_traj.axhline(75.0, color='#ef4444', linestyle='--', label='Max Thermal Trip Limit (75°C)')
                     ax_traj.set_xlabel("Time (seconds relative to sample)", color='white')
                     ax_traj.set_ylabel("Temperature (°C)", color='white')
                     ax_traj.tick_params(colors='white')
@@ -463,38 +461,38 @@ elif mode == "📡 Live Telemetry Stream & Random Dataset Replay (Testing Set)":
                     },
                     "Current(A)": {
                         "standard": "IEC 60947-1 / IEEE C37.04",
-                        "nominal": "10.0 - 50.0 A (Continuous Rated In)",
-                        "eval": lambda v: "OVERLOAD 🔴" if v > 65 else ("HIGH LOAD 🟡" if v > 50 else "NORMAL 🟢")
+                        "nominal": "1.0 - 8.0 A (Rated Continuous In)",
+                        "eval": lambda v: "OVERLOAD 🔴" if v > 8.0 else ("HIGH LOAD 🟡" if v > 6.5 else "NORMAL 🟢")
                     },
                     "Temperature(C)": {
                         "standard": "IEC 62271-1 (Sec 6.5)",
-                        "nominal": "30.0 - 65.0 °C (Max Contact Limit 75°C)",
-                        "eval": lambda v: "CRITICAL 🔴" if v > 75 else ("WARNING 🟡" if v > 65 else "NORMAL 🟢")
+                        "nominal": "20.0 - 55.0 °C (Max Contact Limit 60°C)",
+                        "eval": lambda v: "CRITICAL 🔴" if v > 60.0 else ("WARNING 🟡" if v > 50.0 else "NORMAL 🟢")
                     },
                     "Frequency(Hz)": {
                         "standard": "EN 50160 / IEC 60034-1",
-                        "nominal": "50.00 Hz (49.80 - 50.20 Hz)",
-                        "eval": lambda v: "GRID COLLAPSE 🔴" if abs(v - 50.0) > 0.4 else ("FREQ DRIFT 🟡" if abs(v - 50.0) > 0.2 else "NORMAL 🟢")
+                        "nominal": "50.00 Hz (49.50 - 50.50 Hz)",
+                        "eval": lambda v: "GRID COLLAPSE 🔴" if abs(v - 50.0) > 0.5 else ("FREQ DRIFT 🟡" if abs(v - 50.0) > 0.3 else "NORMAL 🟢")
                     },
                     "Power_Factor": {
                         "standard": "IEEE 1459 / IEEE 519",
-                        "nominal": "0.92 - 0.99 (Optimal Utility Target > 0.90)",
-                        "eval": lambda v: "CRITICAL LOSS 🔴" if v < 0.80 else ("LOW EFFICIENCY 🟡" if v < 0.90 else "NORMAL 🟢")
+                        "nominal": "0.90 - 1.00 (Utility Target > 0.90)",
+                        "eval": lambda v: "CRITICAL LOSS 🔴" if v < 0.88 else ("LOW EFFICIENCY 🟡" if v < 0.92 else "NORMAL 🟢")
                     },
                     "Vibration_Level": {
                         "standard": "ISO 10816-3 / ISO 20816",
-                        "nominal": "< 1.80 mm/s (Zone A: Normal Operating Condition)",
-                        "eval": lambda v: "CRITICAL 🔴" if v > 6.0 else ("WARNING 🟡" if v > 3.0 else "NORMAL 🟢")
+                        "nominal": "< 3.00 mm/s (Normal Operating Zone A/B)",
+                        "eval": lambda v: "CRITICAL 🔴" if v >= 3.50 else ("WARNING 🟡" if v > 3.00 else "NORMAL 🟢")
                     },
                     "Load_Variation(%)": {
                         "standard": "IEC 61000-4-30",
-                        "nominal": "≤ 15.0% Rapid Load Fluctuation Limit",
-                        "eval": lambda v: "HIGH SURGE 🔴" if v > 35 else ("WARNING 🟡" if v > 25 else "NORMAL 🟢")
+                        "nominal": "≤ 20.0% Rapid Fluctuation Limit",
+                        "eval": lambda v: "HIGH SURGE 🔴" if v > 25.0 else ("WARNING 🟡" if v > 20.0 else "NORMAL 🟢")
                     },
                     "Anomaly_Score": {
                         "standard": "IEEE 1415 Substation Health",
-                        "nominal": "< 0.35 Latent Multi-Sensor Anomaly Index",
-                        "eval": lambda v: "CRITICAL RISK 🔴" if v > 0.65 else ("ELEVATED RISK 🟡" if v > 0.40 else "NORMAL 🟢")
+                        "nominal": "< 110.0 Baseline Latent Risk Score",
+                        "eval": lambda v: "CRITICAL RISK 🔴" if v > 135.0 else ("ELEVATED RISK 🟡" if v > 110.0 else "NORMAL 🟢")
                     }
                 }
 
