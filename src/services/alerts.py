@@ -9,6 +9,7 @@ import redis
 
 from src.data.database import log_ai_alert
 from src.notifications.whatsapp import send_whatsapp_alert
+from src.notifications.slack import send_slack_alert
 
 REDIS_HOST = os.getenv("REDIS_HOST", "localhost")
 REDIS_PORT = int(os.getenv("REDIS_PORT", 6379))
@@ -230,6 +231,17 @@ def create_ai_alert(
         r.publish(ALERT_CHANNEL, json.dumps(payload))
     except Exception:
         pass
+
+    # Dispatch to Slack workspace channel (#all-average)
+    try:
+        send_slack_alert(
+            equipment_id=equipment_id,
+            severity=severity.upper(),
+            reason=reason,
+            prescription=prescription,
+        )
+    except Exception as slack_err:
+        print(f"[Slack Alert Notice] {slack_err}")
 
     if severity.upper() == "CRITICAL":
         return send_whatsapp_alert(

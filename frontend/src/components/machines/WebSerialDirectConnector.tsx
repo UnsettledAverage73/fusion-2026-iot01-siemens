@@ -19,13 +19,7 @@ import {
 } from "recharts";
 import { api } from "@/lib/api";
 
-interface WebSerialDirectConnectorProps {
-  initialMachineId?: string;
-  onClose?: () => void;
-  className?: string;
-}
-
-interface ParsedTelemetry {
+export interface ParsedTelemetry {
   equipment_id?: string;
   temperature?: number;
   vibration?: number;
@@ -45,7 +39,7 @@ interface ParsedTelemetry {
   [key: string]: any;
 }
 
-interface RealtimeDataPoint {
+export interface RealtimeDataPoint {
   time: string;
   temperature?: number;
   current?: number;
@@ -54,15 +48,43 @@ interface RealtimeDataPoint {
   button?: number;
 }
 
+export interface WebSerialDirectConnectorProps {
+  initialMachineId?: string;
+  onClose?: () => void;
+  className?: string;
+  onPacketReceived?: (packet: ParsedTelemetry) => void;
+}
+
 export function WebSerialDirectConnector({
   initialMachineId = "SGT-TERM-01",
   onClose,
-  className = ""
+  className = "",
+  onPacketReceived,
 }: WebSerialDirectConnectorProps) {
   // Machine Selection
   const [selectedMachine, setSelectedMachine] = useState(initialMachineId);
+  const [availableMachines, setAvailableMachines] = useState<Array<{ id: string; name: string }>>([]);
   const [baudRate, setBaudRate] = useState(115200);
   const [forwardToBackend, setForwardToBackend] = useState(true);
+
+  // Sync selectedMachine if initialMachineId changes from parent
+  useEffect(() => {
+    if (initialMachineId) {
+      setSelectedMachine(initialMachineId);
+    }
+  }, [initialMachineId]);
+
+  // Load available equipment list from backend
+  useEffect(() => {
+    api
+      .getEquipment()
+      .then((list: any) => {
+        if (Array.isArray(list)) {
+          setAvailableMachines(list.map((m: any) => ({ id: m.id, name: m.name || m.id })));
+        }
+      })
+      .catch(() => {});
+  }, []);
 
   // Connection State
   const [isSupported, setIsSupported] = useState(true);
@@ -288,8 +310,12 @@ export function WebSerialDirectConnector({
             });
         }
       }
+
+      if (onPacketReceived) {
+        onPacketReceived(packet);
+      }
     },
-    [forwardToBackend, selectedMachine]
+    [forwardToBackend, selectedMachine, onPacketReceived]
   );
 
   // Process incoming raw line from Serial Port (supports JSON and Hardware Diagnostic Report text)
@@ -698,9 +724,14 @@ void loop() {
             disabled={isConnected}
             className="w-full bg-black/60 border border-white/10 rounded-lg px-3 py-2 text-xs font-mono text-white focus:outline-none focus:border-sky-500 disabled:opacity-50"
           >
-            <option value="ESP32-HARDWARE-01">ESP32-HARDWARE-01 (Machine 3: Hardware Connected Model)</option>
-            <option value="SGT-TERM-01">SGT-TERM-01 (Machine 1: Dataset 1 Terminal Model)</option>
-            <option value="XFMR-315MVA-01">XFMR-315MVA-01 (Machine 2: Dataset 2 Transformer Model)</option>
+            {!availableMachines.some((m) => m.id === selectedMachine) && (
+              <option value={selectedMachine}>{selectedMachine} (Current Target)</option>
+            )}
+            {availableMachines.map((m) => (
+              <option key={m.id} value={m.id}>
+                {m.id} {m.name && m.name !== m.id ? `(${m.name})` : ""}
+              </option>
+            ))}
           </select>
         </div>
 

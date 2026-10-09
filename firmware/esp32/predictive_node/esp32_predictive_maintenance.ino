@@ -469,9 +469,8 @@ void setup() {
     Serial.println(deviceMacAddress);
     triggerBuzzerPattern(2, 80);
   } else {
-    Serial.println("\n[WiFi] AP not immediately reachable. Launching Captive Config Portal fallback...");
-    startConfigPortal();
-    return;
+    Serial.println("\n[WiFi] WiFi not connected. Continuing in DIRECT USB SERIAL STREAMING mode (115200 baud)...");
+    deviceMacAddress = WiFi.macAddress();
   }
 
   lastTelemetryTime = millis();

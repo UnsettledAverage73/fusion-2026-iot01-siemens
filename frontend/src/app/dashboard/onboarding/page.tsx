@@ -5,7 +5,7 @@ import { StepWizard } from "@/components/ui/StepWizard";
 import { 
   ArrowLeft, ArrowRight, Plug, Settings2, Plus, Zap, CheckCircle2, 
   AlertTriangle, Cpu, Activity, Download, RefreshCw, Radio, 
-  Thermometer, Gauge, Volume2, ToggleLeft, Cloud, Sparkles
+  Thermometer, Gauge, Volume2, ToggleLeft, Cloud, Sparkles, Usb
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { api } from "@/lib/api";
@@ -14,6 +14,7 @@ import { UniversalHardwareWizard } from "@/components/machines/UniversalHardware
 import { CustomSensorModal, CustomSensorData } from "@/components/machines/CustomSensorModal";
 import { SensorCatalogModal, CatalogSensor } from "@/components/machines/SensorCatalogModal";
 import { HardwareHandshakeConsole } from "@/components/machines/HardwareHandshakeConsole";
+import { WebSerialDirectConnector } from "@/components/machines/WebSerialDirectConnector";
 
 interface AvailableSensor {
   id: string;
@@ -516,7 +517,27 @@ export default function OnboardingPage() {
               <p className="text-xs text-[var(--color-muted)] mt-1">Choose how telemetry is ingested from this physical machine.</p>
             </div>
 
-            <div className="grid grid-cols-2 lg:grid-cols-3 gap-4">
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+              {/* USB Serial Featured Protocol Card */}
+              <div 
+                onClick={() => setFormData({...formData, protocol: "USB Serial"})}
+                className={cn(
+                  "p-6 rounded-xl border-2 flex flex-col items-center justify-center text-center gap-3 cursor-pointer transition-all relative",
+                  formData.protocol === "USB Serial" 
+                    ? "border-sky-400 bg-sky-500/10 shadow-[0_0_20px_rgba(56,189,248,0.25)]" 
+                    : "border-[var(--color-border)] bg-[var(--color-surface)] hover:border-[var(--color-muted)]"
+                )}
+              >
+                <div className="absolute top-2 right-2 px-2 py-0.5 rounded text-[8px] font-bold bg-sky-400 text-black uppercase">
+                  WebSerial Live
+                </div>
+                <Usb className={cn("w-10 h-10", formData.protocol === "USB Serial" ? "text-sky-400" : "text-[var(--color-muted)]")} />
+                <div>
+                  <span className="font-bold text-sm tracking-wide block">USB Serial (WebSerial)</span>
+                  <span className="text-[10px] text-[var(--color-muted)] mt-1 block">Zero-Driver Plug & Stream</span>
+                </div>
+              </div>
+
               {/* ESP32 Featured Protocol Card */}
               <div 
                 onClick={() => setFormData({...formData, protocol: "ESP32"})}
@@ -532,8 +553,8 @@ export default function OnboardingPage() {
                 </div>
                 <Cpu className={cn("w-10 h-10", formData.protocol === "ESP32" ? "text-[var(--color-primary)]" : "text-[var(--color-muted)]")} />
                 <div>
-                  <span className="font-bold text-sm tracking-wide block">ESP32 / Microcontroller</span>
-                  <span className="text-[10px] text-[var(--color-muted)] mt-1 block">WiFi HTTP + USB Serial Streaming</span>
+                  <span className="font-bold text-sm tracking-wide block">ESP32 Wi-Fi Node</span>
+                  <span className="text-[10px] text-[var(--color-muted)] mt-1 block">WiFi HTTP Streaming</span>
                 </div>
               </div>
 
@@ -676,7 +697,40 @@ export default function OnboardingPage() {
               )}
             </div>
 
-            {formData.protocol === "ESP32" ? (
+            {formData.protocol === "USB Serial" ? (
+              <div className="flex flex-col gap-5">
+                <div className="p-4 rounded-xl border border-sky-500/30 bg-sky-500/10 flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <div className="w-3 h-3 rounded-full bg-sky-400 animate-pulse" />
+                    <div>
+                      <span className="text-xs font-bold text-white block">
+                        {detectedDevices.length > 0 ? `Active Serial Port Detected on ${detectedDevices[0].port}` : "Direct WebSerial USB Streaming"}
+                      </span>
+                      <span className="text-[10px] font-mono text-sky-200/80">
+                        Target Asset: {formData.assetId} | Baud: 115200 | Browser Direct USB Ingest
+                      </span>
+                    </div>
+                  </div>
+                  <button 
+                    onClick={scanDevices} 
+                    disabled={isScanningDevices}
+                    className="px-3 py-1 rounded-lg border border-[var(--color-border)] text-xs font-mono hover:bg-zinc-800 flex items-center gap-1.5"
+                  >
+                    <RefreshCw className={cn("w-3 h-3", isScanningDevices && "animate-spin")} /> Re-scan
+                  </button>
+                </div>
+
+                <WebSerialDirectConnector
+                  initialMachineId={formData.assetId}
+                  onPacketReceived={() => {
+                    setTestResult({
+                      status: 'success',
+                      message: `USB Serial Telemetry Confirmed! Live packets arriving for ${formData.assetId}`
+                    });
+                  }}
+                />
+              </div>
+            ) : formData.protocol === "ESP32" ? (
               <div className="flex flex-col gap-5">
                 {/* USB Serial Detection Badge */}
                 <div className="p-4 rounded-xl border border-white/10 bg-[var(--color-background)] flex items-center justify-between">

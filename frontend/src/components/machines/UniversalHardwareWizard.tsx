@@ -26,15 +26,17 @@ import {
   Thermometer,
   Trash2,
   Wifi,
-  Zap
+  Zap,
+  Usb
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { api, buildApiUrl } from '@/lib/api';
 import { CustomSensorModal, CustomSensorData } from '@/components/machines/CustomSensorModal';
 import { SensorCatalogModal, CatalogSensor } from '@/components/machines/SensorCatalogModal';
 import { HardwareHandshakeConsole } from '@/components/machines/HardwareHandshakeConsole';
+import { WebSerialDirectConnector } from '@/components/machines/WebSerialDirectConnector';
 
-type PlatformType = 'esp32' | 'raspberry_pi' | 'arduino' | 'curl';
+type PlatformType = 'usb_serial' | 'esp32' | 'raspberry_pi' | 'arduino' | 'curl';
 
 export interface SensorOption {
   id: string;
@@ -234,7 +236,7 @@ export function UniversalHardwareWizard({
         id: equipmentId.trim() || 'CNC-01',
         name: equipmentId.trim() || 'CNC-01',
         productionLine: 'Line 1',
-        protocol: platform.toUpperCase(),
+        protocol: platform === 'usb_serial' ? 'USB Serial' : platform.toUpperCase(),
         machineType: 'Industrial Asset',
         sensors: selectedSensors
       }).catch(() => null);
@@ -250,6 +252,46 @@ export function UniversalHardwareWizard({
     const ingestUrl = `${scheme}://${serverHost}${portPart}/api/iot/ingest`;
     const selectedList = allAvailableSensors.filter(s => selectedSensors.includes(s.id));
     const customList = customSensors.filter(s => selectedSensors.includes(s.id));
+
+    if (platform === 'usb_serial') {
+      const hasDht = selectedSensors.includes('temperature');
+      const hasCurrent = selectedSensors.includes('current_draw');
+      const hasRpm = selectedSensors.includes('rpm');
+      const hasVib = selectedSensors.includes('vibration_rms');
+
+      return `// ==============================================================================
+// SOVEREIGN PREDICTIVE MAINTENANCE: ESP32 / ARDUINO USB SERIAL TELEMETRY NODE
+// Target Machine: ${equipmentId} | Baud Rate: 115200 | Target Machine Protocol: USB Serial
+// Streams real-time sensor packets directly into the browser dashboard via WebSerial
+// ==============================================================================
+
+#define MACHINE_ID "${equipmentId}"
+const unsigned long INTERVAL_MS = 1000;
+
+void setup() {
+  Serial.begin(115200);
+  while (!Serial);
+  delay(500);
+  Serial.println("[READY] USB Serial WebSerial Telemetry Node Initialized for " MACHINE_ID);
+}
+
+void loop() {
+  static unsigned long lastSend = 0;
+  if (millis() - lastSend >= INTERVAL_MS) {
+    lastSend = millis();
+
+    // 1. Read Physical Sensor Values (replace with your real GPIO/ADC pin reads)
+${hasDht ? '    float temperature = 32.5 + (random(-5, 5) * 0.1); // DHT11 Motor Temp (°C)\n    float humidity = 65.0 + (random(-10, 10) * 0.2); // DHT11 Ambient Humidity (%)\n' : ''}${hasCurrent ? '    float current_draw = 1.80 + (random(-3, 3) * 0.05); // ACS712 Motor Current (A)\n' : ''}${hasRpm ? '    float rpm = 1450.0 + (random(-15, 15)); // Hall Effect Shaft Speed (RPM)\n' : ''}${hasVib ? '    float vibration_rms = 0.15 + (random(0, 10) * 0.01); // Vibration Level (mm/s)\n' : ''}    int button_state = 0; // 0 = RELEASED, 1 = PRESSED
+
+    // 2. Stream JSON line over USB Serial to Next.js WebSerial direct parser
+    Serial.print("{\\"equipment_id\\":\\"" MACHINE_ID "\\",");
+${hasDht ? '    Serial.print("\\"temperature\\":"); Serial.print(temperature, 1); Serial.print(",");\n    Serial.print("\\"humidity\\":"); Serial.print(humidity, 1); Serial.print(",");\n' : ''}${hasCurrent ? '    Serial.print("\\"current_draw\\":"); Serial.print(current_draw, 2); Serial.print(",");\n' : ''}${hasRpm ? '    Serial.print("\\"rpm\\":"); Serial.print(rpm, 0); Serial.print(",");\n' : ''}${hasVib ? '    Serial.print("\\"vibration\\":"); Serial.print(vibration_rms, 2); Serial.print(",");\n' : ''}    Serial.print("\\"button_state\\":"); Serial.print(button_state); Serial.print(",");
+    Serial.print("\\"source\\":\\"usb_webserial\\"}");
+    Serial.println(); // Triggers real-time line parse
+  }
+}
+`;
+    }
 
     if (platform === 'esp32') {
       const hasDht = selectedSensors.includes('temperature');
@@ -419,7 +461,9 @@ void loop() {
   };
 
   const codeFileName =
-    platform === 'esp32'
+    platform === 'usb_serial'
+      ? `usb_serial_${equipmentId.toLowerCase().replace(/[^a-z0-9]/g, '_')}.ino`
+      : platform === 'esp32'
       ? `esp32_${equipmentId.toLowerCase().replace(/[^a-z0-9]/g, '_')}.ino`
       : platform === 'raspberry_pi'
         ? `pi_sensor_node.py`
@@ -541,8 +585,15 @@ void loop() {
             <label className="text-xs font-mono text-[var(--color-muted)] uppercase tracking-wider block mb-2">
               Choose Microcontroller or Gateway:
             </label>
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-5">
               {[
+                {
+                  id: 'usb_serial',
+                  name: 'USB Serial (ESP32/Arduino)',
+                  tag: 'WebSerial Direct',
+                  icon: Usb,
+                  desc: 'Stream sensor packets directly into dashboard via USB cable with zero WiFi setup'
+                },
                 {
                   id: 'esp32',
                   name: 'ESP32 Wi-Fi Node',
@@ -844,16 +895,43 @@ void loop() {
       {/* ========================================================================= */}
       {currentStep === 3 && (
         <div className="mt-6 space-y-6 animate-fade-in">
-          
-          {/* Diagnostic Loading & Handshake Engine */}
-          <HardwareHandshakeConsole
-            equipmentId={equipmentId}
-            platform={platform}
-            host={serverHost}
-            port={serverPort}
-            activeSensors={selectedSensors}
-            onHandshakeSuccess={(pkt) => setLatestPacket(pkt)}
-          />
+          {platform === 'usb_serial' ? (
+            <div className="space-y-4">
+              <div className="p-4 rounded-2xl border border-sky-500/30 bg-sky-500/10 flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="w-3 h-3 rounded-full bg-sky-400 animate-pulse" />
+                  <div>
+                    <h3 className="text-sm font-bold text-white">Direct WebSerial USB Live Streamer</h3>
+                    <p className="text-xs text-sky-200/80">
+                      Target Equipment: <strong className="font-mono text-white">{equipmentId}</strong> &bull; Click &quot;Connect USB Device&quot; below to stream telemetry into the dashboard.
+                    </p>
+                  </div>
+                </div>
+                {latestPacket && (
+                  <span className="px-3 py-1 rounded-full text-[10px] font-mono font-bold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 flex items-center gap-1.5 animate-pulse">
+                    <CheckCircle2 className="w-3.5 h-3.5" />
+                    USB Telemetry Streaming
+                  </span>
+                )}
+              </div>
+
+              <WebSerialDirectConnector
+                initialMachineId={equipmentId}
+                onPacketReceived={(pkt) => {
+                  setLatestPacket(pkt);
+                }}
+              />
+            </div>
+          ) : (
+            <HardwareHandshakeConsole
+              equipmentId={equipmentId}
+              platform={platform}
+              host={serverHost}
+              port={serverPort}
+              activeSensors={selectedSensors}
+              onHandshakeSuccess={(pkt) => setLatestPacket(pkt)}
+            />
+          )}
 
           {/* Completed CTA Navigation */}
           <div className="flex items-center justify-between pt-2">

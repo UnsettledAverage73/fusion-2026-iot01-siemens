@@ -1796,6 +1796,28 @@ async def update_whatsapp_settings(request: WhatsAppRequest):
     config = get_config(); config["whatsapp_number"] = request.number; save_config(config)
     return {"status": "success"}
 
+@app.get("/api/settings/slack")
+async def get_slack_settings():
+    from src.notifications.slack import DEFAULT_SLACK_CHANNEL
+    bot_token = os.getenv("SLACK_BOT_TOKEN")
+    return {
+        "channel": os.getenv("SLACK_CHANNEL", DEFAULT_SLACK_CHANNEL),
+        "configured": bool(bot_token),
+        "bot_configured": bool(bot_token and bot_token.startswith("xoxb-"))
+    }
+
+@app.post("/api/settings/slack/test")
+async def test_slack_alert():
+    from src.notifications.slack import send_slack_alert
+    res = send_slack_alert(
+        equipment_id="SGT-TERM-01",
+        severity="CRITICAL",
+        reason="Manual Slack integration test from Sovereign Dashboard.",
+        prescription="Verify communication channel binding and automated dispatch sentinel.",
+        parameters={"temperature": 42.1, "vibration_rms": 2.15, "current_draw": 6.8, "rpm": 1450}
+    )
+    return res or {"status": "error", "message": "Failed to dispatch Slack alert"}
+
 @app.post("/api/equipment/{equipment_id}/mitigate")
 async def mitigate_risk(equipment_id: str):
     command = {"equipment_id": equipment_id, "action": "THROTTLE_LOAD", "value": 0.5, "timestamp": datetime.now().isoformat()}
