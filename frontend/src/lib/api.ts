@@ -237,5 +237,46 @@ export const api = {
       method: "POST",
       body: JSON.stringify(payload),
     }),
+  getFirmwareTemplates: () => fetchApi("/api/firmware/templates"),
+  getFirmwarePorts: () => fetchApi("/api/firmware/ports"),
+  generateFirmwareSketch: (payload: {
+    machine_id: string;
+    machine_name?: string;
+    board?: string;
+    selected_sensors?: string[];
+    custom_sensors?: any[];
+    critical_temperature?: number;
+    sample_rate_hz?: number;
+  }) =>
+    fetchApi("/api/firmware/generate", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+  compileFirmwareSketch: (payload: { sketch_code: string; board?: string }) =>
+    fetchApi("/api/firmware/compile", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+  flashMicrocontroller: (payload: {
+    sketch_code: string;
+    port?: string;
+    board?: string;
+  }) =>
+    fetchApi("/api/firmware/flash", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+  quickCreateMachine: (payload: {
+    machine_id: string;
+    machine_name: string;
+    template_id: string;
+    critical_temperature?: number;
+    selected_sensors?: string[];
+    custom_sensors?: any[];
+  }) =>
+    fetchApi("/api/machines/quick-create", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
 };
 

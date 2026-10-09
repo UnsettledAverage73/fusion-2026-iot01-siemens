@@ -2,11 +2,12 @@
 
 import { Suspense, useDeferredValue, useEffect, useMemo, useState } from "react";
 import { Machine } from "@/types";
-import { Filter, Search, Settings2, FileText } from "lucide-react";
+import { Filter, Search, Settings2, FileText, Zap } from "lucide-react";
 import { api } from "@/lib/api";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { VirtualMachineGrid } from "@/components/machines/VirtualMachineGrid";
+import { QuickAddMachineWizard } from "@/components/machines/QuickAddMachineWizard";
 
 type StatusFilter = "all" | Machine["status"];
 type ProtocolFilter = "all" | Machine["protocol"];
@@ -20,20 +21,21 @@ function MachinesPageContent() {
   const [query, setQuery] = useState(searchParams.get("q") ?? "");
   const [statusFilter, setStatusFilter] = useState<StatusFilter>((searchParams.get("status") as StatusFilter) || "all");
   const [protocolFilter, setProtocolFilter] = useState<ProtocolFilter>((searchParams.get("protocol") as ProtocolFilter) || "all");
+  const [isWizardOpen, setIsWizardOpen] = useState(false);
   const deferredQuery = useDeferredValue(query);
 
-  useEffect(() => {
-    const fetchMachines = async () => {
-      try {
-        const data = await api.getEquipment();
-        setMachines(data);
-      } catch (error) {
-        console.error("Failed to fetch machines:", error);
-      } finally {
-        setIsLoading(false);
-      }
-    };
+  const fetchMachines = async () => {
+    try {
+      const data = await api.getEquipment();
+      setMachines(data);
+    } catch (error) {
+      console.error("Failed to fetch machines:", error);
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
+  useEffect(() => {
     fetchMachines();
   }, []);
 
@@ -97,6 +99,13 @@ function MachinesPageContent() {
           </p>
         </div>
         <div className="flex items-center gap-3 text-xs font-semibold uppercase tracking-[0.18em] text-[var(--color-muted)]">
+          <button
+            onClick={() => setIsWizardOpen(true)}
+            className="flex items-center gap-2 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-3.5 py-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-emerald-400 hover:bg-emerald-500/20 transition-all shadow-sm"
+          >
+            <Zap className="w-3.5 h-3.5 text-emerald-400" />
+            Quick Add & Flash
+          </button>
           <Link 
             href="/dashboard/reports/facility"
             className="flex items-center gap-2 rounded-full border border-[var(--color-primary)]/20 bg-[var(--color-primary)]/5 px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--color-primary)] hover:bg-[var(--color-primary)]/10 transition-colors"
@@ -159,6 +168,12 @@ function MachinesPageContent() {
         machines={filteredMachines}
         isLoading={isLoading}
         className="h-[calc(100vh-290px)] min-h-[720px]"
+      />
+
+      <QuickAddMachineWizard
+        isOpen={isWizardOpen}
+        onClose={() => setIsWizardOpen(false)}
+        onSuccess={() => fetchMachines()}
       />
     </div>
   );

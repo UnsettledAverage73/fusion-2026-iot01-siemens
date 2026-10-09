@@ -32,6 +32,7 @@ from src.services.priority_scheduler import generate_prioritized_schedule
 from src.services.stream_hub import handle_multiplex_stream
 from src.notifications.whatsapp import get_config, save_config, send_whatsapp_alert
 from src.services.alerts import create_ai_alert
+from src.services.firmware_service import FirmwareService
 
 # In-memory tracking for IoT parameter threshold alerting & WhatsApp dispatch cooldown
 _last_temp_alert_time: Dict[str, float] = {}
@@ -214,6 +215,32 @@ class DiagnosticHandshakeRequest(BaseModel):
     host: Optional[str] = "127.0.0.1"
     port: Optional[int] = 8000
     sensors: Optional[List[str]] = []
+
+class GenerateSketchRequest(BaseModel):
+    machine_id: str
+    machine_name: Optional[str] = "Industrial Machine"
+    board: Optional[str] = "esp32"
+    selected_sensors: Optional[List[str]] = ["temperature", "current_draw", "button"]
+    custom_sensors: Optional[List[Dict[str, Any]]] = None
+    critical_temperature: Optional[float] = 80.0
+    sample_rate_hz: Optional[int] = 1
+
+class CompileSketchRequest(BaseModel):
+    sketch_code: str
+    board: Optional[str] = "esp32"
+
+class FlashSketchRequest(BaseModel):
+    sketch_code: str
+    port: Optional[str] = "/dev/ttyUSB0"
+    board: Optional[str] = "esp32"
+
+class QuickCreateMachineRequest(BaseModel):
+    machine_id: str
+    machine_name: str
+    template_id: str
+    critical_temperature: Optional[float] = 80.0
+    selected_sensors: Optional[List[str]] = ["temperature", "current_draw"]
+    custom_sensors: Optional[List[Dict[str, Any]]] = None
 
 
 
@@ -2100,6 +2127,74 @@ async def get_factory_usage():
         except Exception:
             pass
     return usage_data
+
+# ==============================================================================
+# SOVEREIGN FIRMWARE GENERATION & ARDUINO-CLI FLASHING ENDPOINTS
+# ==============================================================================
+
+@app.get("/api/firmware/templates")
+async def get_firmware_templates():
+    """Returns industrial machine failure mode templates and sensor parameter recommendations."""
+    service = FirmwareService()
+    return service.get_templates()
+
+@app.get("/api/firmware/ports")
+async def get_firmware_ports():
+    """Scans local host for plugged microcontrollers via /dev/tty* and arduino-cli."""
+    service = FirmwareService()
+    return {"ports": service.scan_ports()}
+
+@app.post("/api/firmware/generate")
+async def generate_firmware_sketch(req: GenerateSketchRequest):
+    """Generates a custom compilable Arduino C/C++ sketch (.ino) with configured pins and thresholds."""
+    service = FirmwareService()
+    sketch = service.generate_sketch(
+        machine_id=req.machine_id,
+        machine_name=req.machine_name or "Industrial Asset",
+        board=req.board or "esp32",
+        selected_sensors=req.selected_sensors or ["temperature", "current_draw"],
+        custom_sensors=req.custom_sensors or [],
+        critical_temperature=req.critical_temperature if req.critical_temperature is not None else 80.0,
+        sample_rate_hz=req.sample_rate_hz or 1
+    )
+    return {
+        "status": "success",
+        "machine_id": req.machine_id,
+        "board": req.board or "esp32",
+        "critical_temperature": req.critical_temperature or 80.0,
+        "sketch_code": sketch
+    }
+
+@app.post("/api/firmware/compile")
+async def compile_firmware_sketch(req: CompileSketchRequest):
+    """Compiles the sketch code in a sandbox using arduino-cli without flashing."""
+    service = FirmwareService()
+    fqbn = service.get_fqbn(req.board)
+    res = service.compile_sketch(sketch_code=req.sketch_code, fqbn=fqbn)
+    return res
+
+@app.post("/api/firmware/flash")
+async def flash_microcontroller_endpoint(req: FlashSketchRequest):
+    """Compiles and flashes the generated firmware directly to the microcontroller using arduino-cli."""
+    service = FirmwareService()
+    port = req.port or "/dev/ttyUSB0"
+    fqbn = service.get_fqbn(req.board)
+    res = service.flash_microcontroller(sketch_code=req.sketch_code, port=port, fqbn=fqbn)
+    return res
+
+@app.post("/api/machines/quick-create")
+async def quick_create_machine_endpoint(req: QuickCreateMachineRequest):
+    """1-Click onboarding: registers machine, seeds failure parameters, and configures critical temp."""
+    service = FirmwareService()
+    res = service.quick_create_machine(
+        machine_id=req.machine_id,
+        machine_name=req.machine_name,
+        template_id=req.template_id,
+        critical_temperature=req.critical_temperature if req.critical_temperature is not None else 80.0,
+        selected_sensors=req.selected_sensors or ["temperature", "current_draw"],
+        custom_sensors=req.custom_sensors or []
+    )
+    return res
 
 if __name__ == "__main__":
     import uvicorn
