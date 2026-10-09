@@ -221,5 +221,16 @@ export const api = {
       method: "POST",
       body: JSON.stringify(payload),
     }),
+  predictTerminal: (payload: any) =>
+    fetchApi("/api/v1/substation/predict-terminal", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+  predictTransformer: (payload: any) =>
+    fetchApi("/api/v1/substation/predict-transformer", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+  getSubstationPresets: () => fetchApi("/api/v1/substation/presets"),
 };
 

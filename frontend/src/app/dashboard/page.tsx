@@ -4,7 +4,8 @@ import { startTransition, useEffect, useMemo, useState } from "react";
 import { MachineUsageChart } from "@/components/charts/MachineUsageChart";
 import { VirtualMachineGrid } from "@/components/machines/VirtualMachineGrid";
 import { Machine, Alert } from "@/types";
-import { Activity, AlertTriangle, ArrowRight, Calendar, FileText, Radar, Settings2, ShieldCheck, Sparkles, Wifi, Radio, Cpu, Zap, Gauge, CheckCircle2 } from "lucide-react";
+import { Activity, AlertTriangle, ArrowRight, Calendar, FileText, Radar, Settings2, ShieldCheck, Sparkles, Wifi, Radio, Cpu, Zap, Gauge, CheckCircle2, BarChart3 } from "lucide-react";
+import { ConnectedModelInspector } from "@/components/machines/ConnectedModelInspector";
 import { api } from "@/lib/api";
 import { useMultiplexStream } from "@/lib/hooks/use-multiplex-stream";
 import { cn } from "@/lib/utils";
@@ -62,6 +63,7 @@ export default function DashboardPage() {
   const [isPairing, setIsPairing] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [isLive, setIsLive] = useState(false);
+  const [inspectedMachineId, setInspectedMachineId] = useState<string | null>(null);
 
   useEffect(() => {
     const fetchData = async () => {
@@ -457,16 +459,24 @@ export default function DashboardPage() {
               </div>
             </div>
 
-            <div className="pt-3 border-t border-white/8 flex items-center justify-between">
-              <span className="text-xs text-slate-400 font-mono">
-                Model Artifact: <code className="text-sky-300">models/terminal_fault_model.model</code>
+            <div className="pt-3 border-t border-white/8 flex items-center justify-between gap-2">
+              <span className="text-xs text-slate-400 font-mono truncate">
+                Model: <code className="text-sky-300">terminal_fault_model.model</code>
               </span>
-              <Link
-                href="/dashboard/machines/SGT-TERM-01"
-                className="text-xs font-semibold bg-white text-black px-3.5 py-1.5 rounded-lg hover:bg-neutral-200 transition-all flex items-center gap-1.5 shadow-[0_2px_8px_rgba(255,255,255,0.15)]"
-              >
-                Inspect Machine <ArrowRight className="w-3 h-3" />
-              </Link>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setInspectedMachineId("SGT-TERM-01")}
+                  className="text-xs font-semibold bg-sky-500/20 text-sky-300 border border-sky-500/30 px-3 py-1.5 rounded-lg hover:bg-sky-500/30 transition-all flex items-center gap-1.5"
+                >
+                  <BarChart3 className="w-3.5 h-3.5" /> Inspect Model
+                </button>
+                <Link
+                  href="/dashboard/machines/SGT-TERM-01"
+                  className="text-xs font-semibold bg-white text-black px-3.5 py-1.5 rounded-lg hover:bg-neutral-200 transition-all flex items-center gap-1.5 shadow-[0_2px_8px_rgba(255,255,255,0.15)]"
+                >
+                  Machine <ArrowRight className="w-3 h-3" />
+                </Link>
+              </div>
             </div>
           </div>
 
@@ -551,16 +561,24 @@ export default function DashboardPage() {
               </div>
             </div>
 
-            <div className="pt-3 border-t border-white/8 flex items-center justify-between">
-              <span className="text-xs text-slate-400 font-mono">
-                Model Artifact: <code className="text-amber-300">models/transformer_health_model.model</code>
+            <div className="pt-3 border-t border-white/8 flex items-center justify-between gap-2">
+              <span className="text-xs text-slate-400 font-mono truncate">
+                Model: <code className="text-amber-300">transformer_health_model.model</code>
               </span>
-              <Link
-                href="/dashboard/machines/XFMR-315MVA-01"
-                className="text-xs font-semibold bg-white text-black px-3.5 py-1.5 rounded-lg hover:bg-neutral-200 transition-all flex items-center gap-1.5 shadow-[0_2px_8px_rgba(255,255,255,0.15)]"
-              >
-                Inspect Machine <ArrowRight className="w-3 h-3" />
-              </Link>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setInspectedMachineId("XFMR-315MVA-01")}
+                  className="text-xs font-semibold bg-amber-500/20 text-amber-300 border border-amber-500/30 px-3 py-1.5 rounded-lg hover:bg-amber-500/30 transition-all flex items-center gap-1.5"
+                >
+                  <BarChart3 className="w-3.5 h-3.5" /> Inspect Model
+                </button>
+                <Link
+                  href="/dashboard/machines/XFMR-315MVA-01"
+                  className="text-xs font-semibold bg-white text-black px-3.5 py-1.5 rounded-lg hover:bg-neutral-200 transition-all flex items-center gap-1.5 shadow-[0_2px_8px_rgba(255,255,255,0.15)]"
+                >
+                  Machine <ArrowRight className="w-3 h-3" />
+                </Link>
+              </div>
             </div>
           </div>
         </div>
@@ -709,6 +727,18 @@ export default function DashboardPage() {
         </div>
       </div>
       
+      {/* Interactive AI Model Inspection Modal */}
+      {inspectedMachineId && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/85 backdrop-blur-md p-4 sm:p-6 animate-in fade-in duration-200">
+          <div className="w-full max-w-5xl shadow-2xl">
+            <ConnectedModelInspector
+              machineId={inspectedMachineId}
+              isModal={true}
+              onClose={() => setInspectedMachineId(null)}
+            />
+          </div>
+        </div>
+      )}
     </div>
   );
 }

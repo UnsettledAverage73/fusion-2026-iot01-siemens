@@ -15,6 +15,7 @@ import { MaintenanceTable } from "@/components/machines/MaintenanceTable";
 import { MachineInsightsGrid } from "@/components/machines/MachineInsightsGrid";
 import { Iso10816Gauge } from "@/components/machines/Iso10816Gauge";
 import { UniversalHardwareWizard } from "@/components/machines/UniversalHardwareWizard";
+import { ConnectedModelInspector } from "@/components/machines/ConnectedModelInspector";
 import { api } from "@/lib/api";
 import { useMultiplexStream } from "@/lib/hooks/use-multiplex-stream";
 import { Machine, TelemetryPoint, MaintenanceTask, MachineInsights } from "@/types";
@@ -264,6 +265,13 @@ export default function MachineDetailPage({ params }: { params: Promise<{ id: st
             initialMachineId={idStr}
             onComplete={() => setShowHardwareWizard(false)}
           />
+        </div>
+      )}
+
+      {/* Industrial SCADA Connected Model Inspector (Streamlit-Equivalent Graphs) */}
+      {(idStr === "SGT-TERM-01" || idStr === "XFMR-315MVA-01") && (
+        <div className="animate-in fade-in duration-300">
+          <ConnectedModelInspector machineId={idStr} />
         </div>
       )}
 
