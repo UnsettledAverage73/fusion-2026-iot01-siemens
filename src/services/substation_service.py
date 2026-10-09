@@ -243,21 +243,16 @@ def predict_terminal(params: Dict[str, float]) -> Dict[str, Any]:
     mech_thermal = (vib * t) / 100.0
 
     # Advanced IEC 60038 / IEC 62271 / ISO 10816 Physics Features
-    iec_under_v = max(0.0, 212.0 - v)
-    iec_over_v = max(0.0, v - 248.0)
-    v_excursion = iec_under_v + iec_over_v
-    iec_thermal = max(0.0, t - 68.0)
-    iso_vib_d = max(0.0, vib - 5.5)
+    iec_under_v = max(0.0, 207.0 - v)
+    iec_over_v = max(0.0, v - 253.0)
+    volt_dev = abs(v - 230.0) / 230.0
+    iec_thermal = max(0.0, t - 60.0)
+    iso_vib_d = max(0.0, vib - 3.2)
     vib_shock = (vib ** 2) / 10.0
-    sag_vib = iec_under_v * vib
-    phys_trip = (
-        (1.0 if t > 72.0 else 0.0) * 2.0 +
-        (1.0 if vib > 6.0 else 0.0) * 2.5 +
-        (1.0 if (v < 212.0 or v > 248.0) else 0.0) * 2.0
-    )
-    joint_fail = (iec_thermal / 10.0) + (iso_vib_d / 2.0) + (v_excursion / 10.0)
-    app_real_loss = app_p - real_p
-    eff_loss = (100.0 - eff) * thermal_stress / 1000.0
+    overcurrent = max(0.0, i - 8.0)
+    thermal_curr = t * i
+    mech_therm = vib * t
+    trip_flag = 1.0 if (v < 207.0 or v > 253.0 or t > 60.0 or vib >= 3.5 or i > 8.0) else 0.0
 
     raw_row = {
         "Voltage(V)": v, "Current(A)": i, "Temperature(C)": t, "Frequency(Hz)": f,
@@ -265,21 +260,18 @@ def predict_terminal(params: Dict[str, float]) -> Dict[str, Any]:
         "Terminal_Efficiency(%)": eff, "Load_Variation(%)": load_var,
         "Signal_Strength(dB)": sig, "Apparent_Power(kVA)": app_p,
         "Real_Power(kW)": real_p, "Energy_Consumed(kWh)": energy,
-        "Anomaly_Score": anomaly, "Thermal_Stress_Index": thermal_stress,
-        "Voltage_Deviation_Ratio": volt_dev, "Frequency_Deviation": freq_dev,
-        "Power_Factor_Loss": pf_loss, "Impedance_Proxy": impedance,
-        "Mech_Thermal_Shock": mech_thermal,
-        "IEC_UnderVoltage_Margin": iec_under_v,
-        "IEC_OverVoltage_Margin": iec_over_v,
-        "Voltage_Excursion_Severity": v_excursion,
-        "IEC_Thermal_Excursion": iec_thermal,
-        "ISO_Vib_ZoneD_Excursion": iso_vib_d,
-        "Vibration_Pure_Shock": vib_shock,
-        "Sag_Vibration_Coupling": sag_vib,
-        "Physical_Trip_Indicator": phys_trip,
-        "Joint_Failure_Vector": joint_fail,
-        "Apparent_Real_Loss": app_real_loss,
-        "Efficiency_Loss_Factor": eff_loss
+        "Anomaly_Score": anomaly,
+        "Voltage_Sag_Severity": iec_under_v,
+        "Voltage_Swell_Severity": iec_over_v,
+        "Voltage_Deviation_Ratio": volt_dev,
+        "Thermal_Excess": iec_thermal,
+        "Thermal_Stress_Index": thermal_stress,
+        "Vibration_Extreme": iso_vib_d,
+        "Vibration_Quadratic": vib_shock,
+        "Overcurrent_Severity": overcurrent,
+        "Thermal_Current_Stress": thermal_curr,
+        "Mech_Thermal_Product": mech_therm,
+        "Trip_Boundary_Flag": trip_flag
     }
 
     # Model inference
@@ -360,6 +352,13 @@ def predict_transformer(params: Dict[str, float]) -> Dict[str, Any]:
     dielectric_deg = moisture / (bdv + 0.1)
     co2_co = co2 / (co + 1e-4)
 
+    # Physics diagnostic gates
+    arcing_gate = 1.0 if (c2h2 >= 4.0 or duval_c2h2 > 13.0) else 0.0
+    pd_gate = 1.0 if (h2 > 100.0 and ch4 < 50.0 and c2h4 < 50.0) else 0.0
+    t3_gate = 1.0 if (c2h4 > 50.0 and c2h4 > ch4) else 0.0
+    t1_t2_gate = 1.0 if (ch4 > 120.0 or c2h6 > 65.0) else 0.0
+    deg_gate = 1.0 if (bdv < 40.0 or moisture > 30.0) else 0.0
+
     raw_row = {
         "H2(ppm)": h2, "CH4(ppm)": ch4, "C2H6(ppm)": c2h6, "C2H4(ppm)": c2h4,
         "C2H2(ppm)": c2h2, "CO(ppm)": co, "CO2(ppm)": co2, "BDV(kV)": bdv,
@@ -367,8 +366,10 @@ def predict_transformer(params: Dict[str, float]) -> Dict[str, Any]:
         "Age(Years)": age, "TCG(ppm)": tcg, "Duval_CH4_%": duval_ch4,
         "Duval_C2H4_%": duval_c2h4, "Duval_C2H2_%": duval_c2h2,
         "Rogers_R1_CH4_H2": r1, "Rogers_R2_C2H2_C2H4": r2, "Rogers_R3_C2H4_C2H6": r3,
-        "Delta_Temp_Winding_Oil": delta_t, "Dielectric_Degradation_Index": dielectric_deg,
-        "CO2_CO_Ratio": co2_co
+        "CO2_CO_Ratio": co2_co, "Delta_Temp_Winding_Oil": delta_t,
+        "Dielectric_Degradation_Index": dielectric_deg,
+        "Arcing_Gate": arcing_gate, "PD_Gate": pd_gate, "T3_Gate": t3_gate,
+        "T1_T2_Gate": t1_t2_gate, "Degradation_Gate": deg_gate
     }
 
     model_art = get_transformer_model()
