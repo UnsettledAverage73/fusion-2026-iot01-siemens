@@ -4,7 +4,7 @@ import { use, useState, useEffect } from "react";
 import Link from "next/link";
 import dynamic from 'next/dynamic';
 import { 
-  Settings2, Upload, Activity, Zap, Loader2, AlertTriangle, FileText, Cpu, Usb
+  Settings2, Upload, Activity, Zap, Loader2, AlertTriangle, FileText, Cpu, Usb, Radio, Disc, Volume2, Hand
 } from "lucide-react";
 import { ProtocolBadge } from "@/components/machines/ProtocolBadge";
 import { StatusDot } from "@/components/ui/StatusDot";
@@ -310,45 +310,126 @@ export default function MachineDetailPage({ params }: { params: Promise<{ id: st
             })}
           </div>
 
-          {/* Quick Hardware Metrics */}
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-            <div className="glass-panel p-4 rounded-xl border border-white/10">
-              <span className="text-[10px] font-bold uppercase tracking-widest text-[var(--color-muted)] block mb-1">Motor Temp (DHT11)</span>
-              <span className="text-2xl font-black font-mono text-white">
-                {typeof latestTelemetry?.temperature === "number" && latestTelemetry.temperature > 0
-                  ? `${latestTelemetry.temperature.toFixed(1)}°C`
-                  : "--"}
-              </span>
-            </div>
-            <div className="glass-panel p-4 rounded-xl border border-white/10">
-              <span className="text-[10px] font-bold uppercase tracking-widest text-[var(--color-muted)] block mb-1">Current Draw (ACS712)</span>
-              <span className="text-2xl font-black font-mono text-amber-300">
-                {typeof (latestTelemetry as any)?.current_draw === "number"
-                  ? `${(latestTelemetry as any).current_draw.toFixed(2)} A`
-                  : "--"}
-              </span>
-            </div>
-            <div className="glass-panel p-4 rounded-xl border border-white/10">
-              <span className="text-[10px] font-bold uppercase tracking-widest text-[var(--color-muted)] block mb-1">Shaft Speed (Hall RPM)</span>
-              <span className="text-2xl font-black font-mono text-[var(--color-primary)]">
-                {typeof (latestTelemetry as any)?.rpm === "number"
-                  ? `${Math.round((latestTelemetry as any).rpm)} RPM`
-                  : "--"}
-              </span>
-            </div>
-            <div className="glass-panel p-4 rounded-xl border border-white/10">
+          {/* Hardware Live Sensor Matrix (DHT11, ACS712, Hall Sensor, Push Button, Buzzer) */}
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+            {/* 1. Push Button State */}
+            <div className={cn(
+              "glass-panel p-3.5 rounded-xl border transition-all duration-300 flex flex-col justify-between",
+              Number((latestTelemetry as any)?.button_state) === 1
+                ? "border-emerald-400 bg-emerald-500/20 shadow-[0_0_20px_rgba(16,185,129,0.35)] scale-[1.02]"
+                : "border-white/10 bg-black/30"
+            )}>
               <div className="flex items-center justify-between mb-1">
-                <span className="text-[10px] font-bold uppercase tracking-widest text-[var(--color-muted)]">Live Stream</span>
-                <span className="flex h-2 w-2 relative">
-                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-                  <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+                <span className="text-[10px] font-bold uppercase tracking-wider text-[var(--color-muted)]">Operator Button</span>
+                <Hand className={cn("w-4 h-4", Number((latestTelemetry as any)?.button_state) === 1 ? "text-emerald-400 animate-bounce" : "text-slate-500")} />
+              </div>
+              <div>
+                <span className={cn(
+                  "text-lg font-black font-mono block",
+                  Number((latestTelemetry as any)?.button_state) === 1 ? "text-emerald-300" : "text-slate-400"
+                )}>
+                  {Number((latestTelemetry as any)?.button_state) === 1 ? "PRESSED" : "RELEASED"}
+                </span>
+                <span className="text-[9px] font-mono text-[var(--color-muted)] block mt-0.5">
+                  {Number((latestTelemetry as any)?.button_state) === 1 ? "⚠️ Operator Action Active" : "GPIO 27 Nominal"}
                 </span>
               </div>
-              <span className="text-sm font-mono text-white block truncate">
-                {latestTelemetry?.time || latestTelemetry?.timestamp
-                  ? new Date(latestTelemetry.time || latestTelemetry.timestamp || "").toLocaleTimeString()
-                  : "Awaiting Packets"}
-              </span>
+            </div>
+
+            {/* 2. Motor Temperature (DHT11) */}
+            <div className="glass-panel p-3.5 rounded-xl border border-white/10 bg-black/30 flex flex-col justify-between">
+              <div className="flex items-center justify-between mb-1">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-[var(--color-muted)]">DHT11 Temp</span>
+                <span className="h-2 w-2 rounded-full bg-emerald-400 animate-pulse" />
+              </div>
+              <div>
+                <span className="text-xl font-black font-mono text-white block">
+                  {typeof latestTelemetry?.temperature === "number" && latestTelemetry.temperature > 0
+                    ? `${latestTelemetry.temperature.toFixed(1)}°C`
+                    : "--"}
+                </span>
+                <span className="text-[9px] font-mono text-emerald-400 block mt-0.5">
+                  Humidity: {(latestTelemetry as any)?.humidity ?? "--"}%
+                </span>
+              </div>
+            </div>
+
+            {/* 3. Current Draw (ACS712) */}
+            <div className="glass-panel p-3.5 rounded-xl border border-white/10 bg-black/30 flex flex-col justify-between">
+              <div className="flex items-center justify-between mb-1">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-[var(--color-muted)]">ACS712 Current</span>
+                <Zap className="w-3.5 h-3.5 text-amber-400" />
+              </div>
+              <div>
+                <span className="text-xl font-black font-mono text-amber-300 block">
+                  {typeof (latestTelemetry as any)?.current_draw === "number"
+                    ? `${(latestTelemetry as any).current_draw.toFixed(2)} A`
+                    : "--"}
+                </span>
+                <span className="text-[9px] font-mono text-slate-400 block mt-0.5">
+                  ADC 11dB Calibrated
+                </span>
+              </div>
+            </div>
+
+            {/* 4. Shaft Speed (Hall RPM) */}
+            <div className="glass-panel p-3.5 rounded-xl border border-white/10 bg-black/30 flex flex-col justify-between">
+              <div className="flex items-center justify-between mb-1">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-[var(--color-muted)]">Hall RPM</span>
+                <Disc className="w-3.5 h-3.5 text-sky-400 animate-spin" />
+              </div>
+              <div>
+                <span className="text-xl font-black font-mono text-sky-400 block">
+                  {typeof (latestTelemetry as any)?.rpm === "number"
+                    ? `${Math.round((latestTelemetry as any).rpm)} RPM`
+                    : "0 RPM"}
+                </span>
+                <span className="text-[9px] font-mono text-slate-400 block mt-0.5">
+                  Pulse Counter Active
+                </span>
+              </div>
+            </div>
+
+            {/* 5. Hall Magnetic Flux Analog */}
+            <div className="glass-panel p-3.5 rounded-xl border border-white/10 bg-black/30 flex flex-col justify-between">
+              <div className="flex items-center justify-between mb-1">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-[var(--color-muted)]">Hall Flux (A0)</span>
+                <Radio className="w-3.5 h-3.5 text-purple-400" />
+              </div>
+              <div>
+                <span className="text-xl font-black font-mono text-purple-300 block">
+                  {typeof (latestTelemetry as any)?.hall_analog === "number"
+                    ? Math.round((latestTelemetry as any).hall_analog)
+                    : "--"}
+                </span>
+                <span className="text-[9px] font-mono text-slate-400 block mt-0.5">
+                  Raw ADC (0-4095)
+                </span>
+              </div>
+            </div>
+
+            {/* 6. Alarm Buzzer Status */}
+            <div className={cn(
+              "glass-panel p-3.5 rounded-xl border transition-all duration-300 flex flex-col justify-between",
+              Number((latestTelemetry as any)?.buzzer_state) === 1
+                ? "border-red-500 bg-red-500/20 shadow-[0_0_20px_rgba(239,68,68,0.35)]"
+                : "border-white/10 bg-black/30"
+            )}>
+              <div className="flex items-center justify-between mb-1">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-[var(--color-muted)]">Alarm Buzzer</span>
+                <Volume2 className={cn("w-3.5 h-3.5", Number((latestTelemetry as any)?.buzzer_state) === 1 ? "text-red-400 animate-pulse" : "text-slate-500")} />
+              </div>
+              <div>
+                <span className={cn(
+                  "text-lg font-black font-mono block",
+                  Number((latestTelemetry as any)?.buzzer_state) === 1 ? "text-red-400" : "text-slate-400"
+                )}>
+                  {Number((latestTelemetry as any)?.buzzer_state) === 1 ? "ALARM ON" : "QUIET"}
+                </span>
+                <span className="text-[9px] font-mono text-[var(--color-muted)] block mt-0.5">
+                  GPIO 13 Sounder
+                </span>
+              </div>
             </div>
           </div>
 

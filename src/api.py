@@ -893,8 +893,6 @@ async def get_connected_sensors(minutes: int = 5):
                 telemetry_status = str(value) if value is not None else None
 
         if not latest_time:
-            if protocol != "HTTP":
-                continue
             connected.append({
                 "equipment_id": equipment_id,
                 "name": row["name"] or equipment_id,

@@ -395,29 +395,52 @@ void loop() {
       </div>
 
       {/* Live Metrics HUD */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-5 font-mono text-center">
+      <div className="grid grid-cols-2 md:grid-cols-6 gap-3 mb-5 font-mono text-center">
         <div className="p-3 rounded-xl border border-white/8 bg-black/30">
-          <span className="text-[10px] uppercase text-slate-400 block mb-0.5">Packets Received</span>
+          <span className="text-[10px] uppercase text-slate-400 block mb-0.5">Packets</span>
           <span className="text-xl font-bold text-white">{packetCount}</span>
         </div>
         <div className="p-3 rounded-xl border border-white/8 bg-black/30">
-          <span className="text-[10px] uppercase text-slate-400 block mb-0.5">Cadence (Rate)</span>
+          <span className="text-[10px] uppercase text-slate-400 block mb-0.5">Cadence</span>
           <span className="text-xl font-bold text-sky-400">{cadenceHz} Hz</span>
         </div>
         <div className="p-3 rounded-xl border border-white/8 bg-black/30">
-          <span className="text-[10px] uppercase text-slate-400 block mb-0.5">Live Temperature</span>
+          <span className="text-[10px] uppercase text-slate-400 block mb-0.5">DHT11 Temp</span>
           <span className="text-xl font-bold text-amber-300">
             {latestPacket?.temperature !== undefined ? `${latestPacket.temperature}°C` : "--"}
           </span>
         </div>
         <div className="p-3 rounded-xl border border-white/8 bg-black/30">
-          <span className="text-[10px] uppercase text-slate-400 block mb-0.5">Vibration / Current</span>
+          <span className="text-[10px] uppercase text-slate-400 block mb-0.5">ACS712 Current</span>
           <span className="text-xl font-bold text-emerald-400">
-            {latestPacket?.vibration !== undefined
-              ? `${latestPacket.vibration} mm/s`
-              : latestPacket?.current_draw !== undefined
-              ? `${latestPacket.current_draw} A`
-              : "--"}
+            {latestPacket?.current_draw !== undefined
+              ? `${Number(latestPacket.current_draw).toFixed(2)} A`
+              : (latestPacket?.parameters?.current_draw !== undefined ? `${Number(latestPacket.parameters.current_draw).toFixed(2)} A` : "--")}
+          </span>
+        </div>
+        <div className="p-3 rounded-xl border border-white/8 bg-black/30">
+          <span className="text-[10px] uppercase text-slate-400 block mb-0.5">Hall Speed</span>
+          <span className="text-xl font-bold text-purple-400">
+            {latestPacket?.rpm !== undefined
+              ? `${Math.round(latestPacket.rpm)} RPM`
+              : (latestPacket?.parameters?.rpm !== undefined ? `${Math.round(latestPacket.parameters.rpm)} RPM` : "0 RPM")}
+          </span>
+        </div>
+        {/* Real-time Hardware Push Button Indicator */}
+        <div className={`p-3 rounded-xl border transition-all duration-300 ${
+          Number(latestPacket?.button_state ?? latestPacket?.parameters?.button_state) === 1
+            ? "border-emerald-400 bg-emerald-500/30 shadow-[0_0_20px_rgba(16,185,129,0.5)] scale-105"
+            : "border-white/8 bg-black/30"
+        }`}>
+          <span className="text-[10px] uppercase text-slate-400 block mb-0.5">Push Button</span>
+          <span className={`text-base font-bold flex items-center justify-center gap-1.5 ${
+            Number(latestPacket?.button_state ?? latestPacket?.parameters?.button_state) === 1
+              ? "text-emerald-300 animate-pulse font-black"
+              : "text-slate-500"
+          }`}>
+            {Number(latestPacket?.button_state ?? latestPacket?.parameters?.button_state) === 1
+              ? "🔘 PRESSED"
+              : "⚪ RELEASED"}
           </span>
         </div>
       </div>

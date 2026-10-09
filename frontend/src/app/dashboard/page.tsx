@@ -245,21 +245,33 @@ export default function DashboardPage() {
           </span>
         </div>
         <div className="rounded-xl border border-white/8 bg-black/10 p-3">
-          <span className="block text-[10px] uppercase tracking-[0.18em] text-[var(--color-muted)]">Humidity</span>
-          <span className="mt-1 block font-mono text-[var(--color-foreground)]">
-            {sensor.humidity ?? "--"}{sensor.humidity !== null && sensor.humidity !== undefined ? "%" : ""}
+          <span className="block text-[10px] uppercase tracking-[0.18em] text-[var(--color-muted)]">Current</span>
+          <span className="mt-1 block font-mono text-amber-300">
+            {sensor.parameters?.current_draw !== undefined && sensor.parameters?.current_draw !== null
+              ? `${Number(sensor.parameters.current_draw).toFixed(2)} A`
+              : (sensor.humidity !== null && sensor.humidity !== undefined ? `${sensor.humidity}%` : "--")}
           </span>
         </div>
-        <div className="rounded-xl border border-white/8 bg-black/10 p-3 col-span-2">
-          <span className="block text-[10px] uppercase tracking-[0.18em] text-[var(--color-muted)]">Status</span>
-          <span className="mt-1 block font-mono text-[var(--color-foreground)]">
-            {sensor.telemetry_status || "OK"}
+        {/* Push Button Live State */}
+        <div className={`rounded-xl border p-3 col-span-2 transition-all duration-300 ${
+          Number(sensor.parameters?.button_state) === 1
+            ? 'border-emerald-500/60 bg-emerald-500/20 shadow-[0_0_15px_rgba(16,185,129,0.3)]'
+            : 'border-white/8 bg-black/10'
+        }`}>
+          <div className="flex items-center justify-between">
+            <span className="block text-[10px] uppercase tracking-[0.18em] text-[var(--color-muted)]">Hardware Push Button</span>
+            <span className={`h-2 w-2 rounded-full ${Number(sensor.parameters?.button_state) === 1 ? 'bg-emerald-400 animate-ping' : 'bg-slate-600'}`} />
+          </div>
+          <span className={`mt-1 block font-mono font-bold text-sm ${
+            Number(sensor.parameters?.button_state) === 1 ? 'text-emerald-300' : 'text-slate-400'
+          }`}>
+            {Number(sensor.parameters?.button_state) === 1 ? '🔘 BUTTON IS PRESSED!' : '⚪ Button Released'}
           </span>
         </div>
         <div className="rounded-xl border border-white/8 bg-black/10 p-3 col-span-2">
           <span className="block text-[10px] uppercase tracking-[0.18em] text-[var(--color-muted)]">Last Seen</span>
           <span className="mt-1 block font-mono text-[var(--color-foreground)]">
-            {sensor.last_seen ? new Date(sensor.last_seen).toLocaleString() : "Awaiting first packet"}
+            {sensor.last_seen ? new Date(sensor.last_seen).toLocaleTimeString() : "Awaiting first packet"}
           </span>
         </div>
         {sensor.sensor_kind === "temperature" || sensor.sensor_kind === "temperature_humidity" || sensor.sensor_kind === "temperature_vibration" ? (
