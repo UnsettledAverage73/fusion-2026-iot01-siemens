@@ -14,8 +14,8 @@ router = APIRouter(prefix="/api/v1/substation", tags=["Siemens Smart Grid Substa
 
 class TerminalPredictionRequest(BaseModel):
     voltage: float = Field(230.0, description="Terminal Voltage (V)")
-    current: float = Field(35.0, description="Current (A)")
-    temperature: float = Field(45.0, description="Temperature (°C)")
+    current: float = Field(5.15, description="Current (A)")
+    temperature: float = Field(42.5, description="Temperature (°C)")
     frequency: float = Field(50.0, description="Frequency (Hz)")
     power_factor: float = Field(0.92, description="Power Factor")
     vibration_level: float = Field(1.5, description="Vibration Level (mm/s)")

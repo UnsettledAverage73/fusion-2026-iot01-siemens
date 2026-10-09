@@ -1,37 +1,116 @@
 import os
 import json
-import joblib
-import numpy as np
-import pandas as pd
+import math
 from typing import Dict, Any, List, Optional
+
+try:
+    import joblib
+except ImportError:
+    joblib = None
+
+try:
+    import numpy as np
+except ImportError:
+    np = None
+
+try:
+    import pandas as pd
+except ImportError:
+    pd = None
 
 MODELS_DIR = "models"
 DATA_DIR = "data"
 TERMINAL_MODEL_PATH = os.path.join(MODELS_DIR, "terminal_fault_model.joblib")
 TRANSFORMER_MODEL_PATH = os.path.join(MODELS_DIR, "transformer_health_model.joblib")
+TERMINAL_ZERO_DEP_PATH = os.path.join(MODELS_DIR, "terminal_fault_model.model")
+TRANSFORMER_ZERO_DEP_PATH = os.path.join(MODELS_DIR, "transformer_health_model.model")
 TOPOLOGY_PATH = os.path.join(DATA_DIR, "substation_topology.json")
 
 # In-memory cached artifacts
 _terminal_artifacts = None
 _transformer_artifacts = None
+_terminal_zero_dep_model = None
+_transformer_zero_dep_model = None
 
 def get_terminal_model():
-    global _terminal_artifacts
-    if _terminal_artifacts is None and os.path.exists(TERMINAL_MODEL_PATH):
+    global _terminal_artifacts, _terminal_zero_dep_model
+    # Priority 1: Zero-dependency .model JSON format (Production safe, no scikit-learn required)
+    if _terminal_zero_dep_model is None and os.path.exists(TERMINAL_ZERO_DEP_PATH):
+        try:
+            with open(TERMINAL_ZERO_DEP_PATH, "r") as f:
+                _terminal_zero_dep_model = json.load(f)
+            return _terminal_zero_dep_model
+        except Exception as e:
+            print(f"Error loading zero-dep terminal model: {e}")
+            
+    # Priority 2: joblib artifact if available in dev environment
+    if _terminal_artifacts is None and joblib is not None and os.path.exists(TERMINAL_MODEL_PATH):
         try:
             _terminal_artifacts = joblib.load(TERMINAL_MODEL_PATH)
         except Exception as e:
-            print(f"Error loading terminal model: {e}")
-    return _terminal_artifacts
+            print(f"Error loading terminal joblib model: {e}")
+    return _terminal_artifacts or _terminal_zero_dep_model
 
 def get_transformer_model():
-    global _transformer_artifacts
-    if _transformer_artifacts is None and os.path.exists(TRANSFORMER_MODEL_PATH):
+    global _transformer_artifacts, _transformer_zero_dep_model
+    # Priority 1: Zero-dependency .model JSON format (Production safe, no scikit-learn required)
+    if _transformer_zero_dep_model is None and os.path.exists(TRANSFORMER_ZERO_DEP_PATH):
+        try:
+            with open(TRANSFORMER_ZERO_DEP_PATH, "r") as f:
+                _transformer_zero_dep_model = json.load(f)
+            return _transformer_zero_dep_model
+        except Exception as e:
+            print(f"Error loading zero-dep transformer model: {e}")
+
+    # Priority 2: joblib artifact if available in dev environment
+    if _transformer_artifacts is None and joblib is not None and os.path.exists(TRANSFORMER_MODEL_PATH):
         try:
             _transformer_artifacts = joblib.load(TRANSFORMER_MODEL_PATH)
         except Exception as e:
-            print(f"Error loading transformer model: {e}")
-    return _transformer_artifacts
+            print(f"Error loading transformer joblib model: {e}")
+    return _transformer_artifacts or _transformer_zero_dep_model
+
+def _eval_tree_node(node: dict, features: dict, feat_names: list) -> float:
+    if "leaf_value" in node:
+        return float(node["leaf_value"])
+    f_idx = node.get("split_feature", 0)
+    f_name = feat_names[f_idx] if f_idx < len(feat_names) else ""
+    val = float(features.get(f_name, 0.0))
+    thresh = float(node.get("threshold", 0.0))
+    if val <= thresh:
+        return _eval_tree_node(node["left_child"], features, feat_names)
+    else:
+        return _eval_tree_node(node["right_child"], features, feat_names)
+
+def _predict_terminal_trees(model_dict: dict, features: dict) -> float:
+    trees = model_dict.get("trees", [])
+    feat_names = model_dict.get("feature_names", [])
+    raw_sum = sum(_eval_tree_node(t, features, feat_names) for t in trees)
+    # Binary logistic sigmoid
+    return 1.0 / (1.0 + math.exp(-raw_sum))
+
+def _predict_transformer_trees(model_dict: dict, features: dict):
+    feat_names = model_dict.get("feature_names", [])
+    cls_trees = model_dict.get("classifier_trees", [])
+    reg_trees = model_dict.get("regressor_trees", [])
+    classes = model_dict.get("classes", [])
+    num_classes = model_dict.get("num_classes", len(classes))
+    
+    # 1. Multi-class soft probabilities
+    scores = [0.0] * num_classes
+    for idx, t in enumerate(cls_trees):
+        scores[idx % num_classes] += _eval_tree_node(t, features, feat_names)
+    max_s = max(scores) if scores else 0.0
+    exp_s = [math.exp(s - max_s) for s in scores]
+    sum_e = sum(exp_s) or 1.0
+    probs = {classes[i]: round(exp_s[i] / sum_e, 4) for i in range(num_classes)}
+    pred_class = max(probs, key=probs.get) if probs else "Nominal_Normal"
+    
+    # 2. Continuous Health Index Regressor
+    health_index = sum(_eval_tree_node(t, features, feat_names) for t in reg_trees)
+    health_index = round(max(0.0, min(100.0, health_index)), 1)
+    
+    return pred_class, probs, health_index
 
 # Preset Scenarios for instant testing in Streamlit & API
 PRESET_SCENARIOS = {
@@ -40,8 +119,8 @@ PRESET_SCENARIOS = {
         "description": "Standard 400kV substation operation with nominal thermal, electrical, and gas levels.",
         "terminal": {
             "voltage": 230.8,
-            "current": 38.5,
-            "temperature": 43.2,
+            "current": 5.15,
+            "temperature": 42.5,
             "frequency": 50.02,
             "power_factor": 0.94,
             "vibration_level": 1.25,
@@ -49,9 +128,9 @@ PRESET_SCENARIOS = {
             "terminal_efficiency": 94.2,
             "load_variation": 12.4,
             "signal_strength": -64.0,
-            "apparent_power": 8.88,
-            "real_power": 8.35,
-            "energy_consumed": 142.0,
+            "apparent_power": 1.18,
+            "real_power": 1.11,
+            "energy_consumed": 22.0,
             "anomaly_score": 0.12
         },
         "transformer": {
@@ -276,7 +355,11 @@ def predict_terminal(params: Dict[str, float]) -> Dict[str, Any]:
 
     # Model inference
     model_art = get_terminal_model()
-    if model_art is not None:
+    if model_art is not None and "trees" in model_art:
+        # Zero-dependency native tree ensemble inference (Production Safe - No scikit-learn required)
+        fault_prob = _predict_terminal_trees(model_art, raw_row)
+        fault_status = int(fault_prob >= model_art.get("threshold", 0.50))
+    elif model_art is not None and "model" in model_art and pd is not None:
         model = model_art["model"]
         cols = model_art["feature_names"]
         df_in = pd.DataFrame([raw_row])
@@ -291,7 +374,8 @@ def predict_terminal(params: Dict[str, float]) -> Dict[str, Any]:
     else:
         # High-fidelity physics heuristic fallback
         z_score = (thermal_stress / 120.0) * 0.4 + (volt_dev * 10.0) * 0.3 + (vib / 5.0) * 0.3
-        fault_prob = float(np.clip(1.0 / (1.0 + np.exp(-(z_score - 1.2) * 3.0)), 0.01, 0.99))
+        fault_prob = float(1.0 / (1.0 + math.exp(-(z_score - 1.2) * 3.0)))
+        fault_prob = max(0.01, min(0.99, fault_prob))
         fault_status = int(fault_prob >= 0.50)
 
     # Compute sensor attribution (SHAP proxy)
@@ -373,7 +457,10 @@ def predict_transformer(params: Dict[str, float]) -> Dict[str, Any]:
     }
 
     model_art = get_transformer_model()
-    if model_art is not None:
+    if model_art is not None and "classifier_trees" in model_art:
+        # Zero-dependency native tree ensemble inference (Production Safe - No scikit-learn required)
+        fault_class, class_probs, health_index = _predict_transformer_trees(model_art, raw_row)
+    elif model_art is not None and "classifier" in model_art and pd is not None and np is not None:
         cls_model = model_art["classifier"]
         reg_model = model_art["regressor"]
         cols = model_art["feature_names"]
@@ -448,7 +535,7 @@ def evaluate_substation_system(terminal_inputs: Dict[str, float], transformer_in
 
     # Cascading risk formula
     cascade_risk = 100.0 * (1.0 - (1.0 - p_transformer * 0.50) * (1.0 - p_breaker * 0.35))
-    cascade_risk = round(float(np.clip(cascade_risk, 2.0, 99.5)), 1)
+    cascade_risk = round(float(max(2.0, min(99.5, cascade_risk))), 1)
 
     if cascade_risk >= 65.0:
         overall_status = "CRITICAL"

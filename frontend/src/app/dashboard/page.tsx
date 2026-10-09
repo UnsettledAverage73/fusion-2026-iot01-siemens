@@ -138,6 +138,28 @@ export default function DashboardPage() {
     }
   }, [machines, pairMachineId]);
 
+  const machine1Data = useMemo(() => {
+    return machines.find((m) => m.id === "SGT-TERM-01") || {
+      id: "SGT-TERM-01",
+      name: "Smart Grid Terminal & Breaker CB-01",
+      status: "online" as const,
+      healthScore: 99.8,
+      temperature: 42.5,
+      vibration: 1.82,
+    };
+  }, [machines]);
+
+  const machine2Data = useMemo(() => {
+    return machines.find((m) => m.id === "XFMR-315MVA-01") || {
+      id: "XFMR-315MVA-01",
+      name: "Power Transformer T1 (Sensformer 315 MVA)",
+      status: "online" as const,
+      healthScore: 88.5,
+      temperature: 58.2,
+      vibration: 0.48,
+    };
+  }, [machines]);
+
   const kpiCards = useMemo(() => [
     { label: "Risk posture", value: isLoading ? "--" : `${stats.globalRisk ?? 0}%`, icon: Radar, tone: "text-white" },
     { label: "Fleet health", value: isLoading ? "--" : `${stats.avgHealth}%`, icon: ShieldCheck, tone: "text-white" },
@@ -378,9 +400,9 @@ export default function DashboardPage() {
                 <div className="text-right flex flex-col items-end">
                   <span className="rounded-full border border-emerald-500/30 bg-emerald-500/10 px-3 py-1 text-[11px] font-semibold text-emerald-400 flex items-center gap-1.5">
                     <span className="h-1.5 w-1.5 rounded-full bg-emerald-400"></span>
-                    ONLINE
+                    {machine1Data.status.toUpperCase()}
                   </span>
-                  <span className="text-[10px] font-mono text-slate-400 mt-1">Health: 99.8%</span>
+                  <span className="text-[10px] font-mono text-slate-400 mt-1">Health: {machine1Data.healthScore}%</span>
                 </div>
               </div>
 
@@ -392,7 +414,7 @@ export default function DashboardPage() {
                     Connected Model:
                   </span>
                   <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-sky-500/20 text-sky-300 font-semibold border border-sky-500/30">
-                    GradientBoosting + Physics Interlocks
+                    Pre-Trained Tree Ensemble (.model)
                   </span>
                 </div>
                 <div className="grid grid-cols-2 gap-2 text-[11px] font-mono text-slate-300 mt-2 pt-2 border-t border-white/5">
@@ -409,8 +431,8 @@ export default function DashboardPage() {
                     <span>IEC 60038 / ISO 10816</span>
                   </div>
                   <div>
-                    <span className="text-slate-500 block text-[9px] uppercase">Telemetry Protocol</span>
-                    <span>REST & ESP32 Direct Ingest</span>
+                    <span className="text-slate-500 block text-[9px] uppercase">Production Engine</span>
+                    <span className="text-emerald-400">Zero-Dependency (No Retrain)</span>
                   </div>
                 </div>
               </div>
@@ -429,7 +451,7 @@ export default function DashboardPage() {
                 </div>
                 <div className="rounded-xl border border-white/8 bg-black/20 p-2.5">
                   <span className="block text-[10px] uppercase tracking-wider text-slate-400">Vibration</span>
-                  <span className="text-base font-bold font-mono text-white mt-0.5 block">1.82 mm/s</span>
+                  <span className="text-base font-bold font-mono text-white mt-0.5 block">{machine1Data.vibration ?? 1.82} mm/s</span>
                   <span className="text-[9px] text-emerald-400">ISO Zone A</span>
                 </div>
               </div>
@@ -437,7 +459,7 @@ export default function DashboardPage() {
 
             <div className="pt-3 border-t border-white/8 flex items-center justify-between">
               <span className="text-xs text-slate-400 font-mono">
-                Model Artifact: <code className="text-sky-300">models/terminal_fault_model.joblib</code>
+                Model Artifact: <code className="text-sky-300">models/terminal_fault_model.model</code>
               </span>
               <Link
                 href="/dashboard/machines/SGT-TERM-01"
@@ -472,9 +494,9 @@ export default function DashboardPage() {
                 <div className="text-right flex flex-col items-end">
                   <span className="rounded-full border border-emerald-500/30 bg-emerald-500/10 px-3 py-1 text-[11px] font-semibold text-emerald-400 flex items-center gap-1.5">
                     <span className="h-1.5 w-1.5 rounded-full bg-emerald-400"></span>
-                    ONLINE
+                    {machine2Data.status.toUpperCase()}
                   </span>
-                  <span className="text-[10px] font-mono text-slate-400 mt-1">Health Index: 88.5%</span>
+                  <span className="text-[10px] font-mono text-slate-400 mt-1">Health Index: {machine2Data.healthScore}%</span>
                 </div>
               </div>
 
@@ -486,7 +508,7 @@ export default function DashboardPage() {
                     Connected Model:
                   </span>
                   <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-amber-500/20 text-amber-300 font-semibold border border-amber-500/30">
-                    ExtraTrees Classifier + GradientBoosting Regressor
+                    Pre-Trained Tree Ensemble (.model)
                   </span>
                 </div>
                 <div className="grid grid-cols-2 gap-2 text-[11px] font-mono text-slate-300 mt-2 pt-2 border-t border-white/5">
@@ -503,8 +525,8 @@ export default function DashboardPage() {
                     <span>IEEE C57.104 / Duval Triangle</span>
                   </div>
                   <div>
-                    <span className="text-slate-500 block text-[9px] uppercase">Health Index R²</span>
-                    <span className="text-emerald-400 font-bold">0.9956 (MAE 0.20%)</span>
+                    <span className="text-slate-500 block text-[9px] uppercase">Production Engine</span>
+                    <span className="text-emerald-400">Zero-Dependency (No Retrain)</span>
                   </div>
                 </div>
               </div>
@@ -513,7 +535,7 @@ export default function DashboardPage() {
               <div className="grid grid-cols-3 gap-2 text-center mb-4">
                 <div className="rounded-xl border border-white/8 bg-black/20 p-2.5">
                   <span className="block text-[10px] uppercase tracking-wider text-slate-400">Oil Temp</span>
-                  <span className="text-base font-bold font-mono text-white mt-0.5 block">58.2 °C</span>
+                  <span className="text-base font-bold font-mono text-white mt-0.5 block">{machine2Data.temperature ?? 58.2} °C</span>
                   <span className="text-[9px] text-emerald-400">Optimal Range</span>
                 </div>
                 <div className="rounded-xl border border-white/8 bg-black/20 p-2.5">
@@ -531,7 +553,7 @@ export default function DashboardPage() {
 
             <div className="pt-3 border-t border-white/8 flex items-center justify-between">
               <span className="text-xs text-slate-400 font-mono">
-                Model Artifact: <code className="text-amber-300">models/transformer_health_model.joblib</code>
+                Model Artifact: <code className="text-amber-300">models/transformer_health_model.model</code>
               </span>
               <Link
                 href="/dashboard/machines/XFMR-315MVA-01"
