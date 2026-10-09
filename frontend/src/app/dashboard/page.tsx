@@ -4,8 +4,9 @@ import { startTransition, useEffect, useMemo, useState } from "react";
 import { MachineUsageChart } from "@/components/charts/MachineUsageChart";
 import { VirtualMachineGrid } from "@/components/machines/VirtualMachineGrid";
 import { Machine, Alert } from "@/types";
-import { Activity, AlertTriangle, ArrowRight, Calendar, FileText, Radar, Settings2, ShieldCheck, Sparkles, Wifi, Radio, Cpu, Zap, Gauge, CheckCircle2, BarChart3 } from "lucide-react";
+import { Activity, AlertTriangle, ArrowRight, Calendar, FileText, Radar, Settings2, ShieldCheck, Sparkles, Wifi, Radio, Cpu, Zap, Gauge, CheckCircle2, BarChart3, Usb } from "lucide-react";
 import { ConnectedModelInspector } from "@/components/machines/ConnectedModelInspector";
+import { WebSerialDirectConnector } from "@/components/machines/WebSerialDirectConnector";
 import { api } from "@/lib/api";
 import { useMultiplexStream } from "@/lib/hooks/use-multiplex-stream";
 import { cn } from "@/lib/utils";
@@ -64,6 +65,7 @@ export default function DashboardPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [isLive, setIsLive] = useState(false);
   const [inspectedMachineId, setInspectedMachineId] = useState<string | null>(null);
+  const [showWebSerialModal, setShowWebSerialModal] = useState(false);
 
   useEffect(() => {
     const fetchData = async () => {
@@ -369,7 +371,14 @@ export default function DashboardPage() {
               Real-time inference engines directly linked to physical equipment assets across Dataset 1 (Terminal Breakers) and Dataset 2 (Power Transformers).
             </p>
           </div>
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-3 flex-wrap">
+            <button
+              onClick={() => setShowWebSerialModal(true)}
+              className="inline-flex items-center gap-2 rounded-xl border border-sky-500/40 bg-sky-500/10 px-3.5 py-2 text-xs font-semibold text-sky-400 hover:bg-sky-500/20 transition-all shadow-[0_0_15px_rgba(56,189,248,0.15)]"
+            >
+              <Usb className="h-4 w-4" />
+              Connect Microcontroller (USB)
+            </button>
             <span className="inline-flex items-center gap-2 rounded-xl border border-white/10 bg-white/5 px-3.5 py-2 text-xs font-mono text-[var(--color-foreground)]">
               <CheckCircle2 className="h-4 w-4 text-emerald-400" />
               Model Status: 100% Calibrated
@@ -735,6 +744,18 @@ export default function DashboardPage() {
               machineId={inspectedMachineId}
               isModal={true}
               onClose={() => setInspectedMachineId(null)}
+            />
+          </div>
+        </div>
+      )}
+
+      {/* Direct USB Microcontroller WebSerial Modal */}
+      {showWebSerialModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/85 backdrop-blur-md p-4 sm:p-6 animate-in fade-in duration-200">
+          <div className="w-full max-w-4xl shadow-2xl">
+            <WebSerialDirectConnector
+              initialMachineId="SGT-TERM-01"
+              onClose={() => setShowWebSerialModal(false)}
             />
           </div>
         </div>

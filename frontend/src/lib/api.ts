@@ -232,5 +232,10 @@ export const api = {
       body: JSON.stringify(payload),
     }),
   getSubstationPresets: () => fetchApi("/api/v1/substation/presets"),
+  ingestTelemetry: (payload: any) =>
+    fetchApi("/api/iot/ingest", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
 };
 

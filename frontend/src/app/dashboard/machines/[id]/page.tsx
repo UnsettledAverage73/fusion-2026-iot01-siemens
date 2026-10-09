@@ -4,7 +4,7 @@ import { use, useState, useEffect } from "react";
 import Link from "next/link";
 import dynamic from 'next/dynamic';
 import { 
-  Settings2, Upload, Activity, Zap, Loader2, AlertTriangle, FileText, Cpu
+  Settings2, Upload, Activity, Zap, Loader2, AlertTriangle, FileText, Cpu, Usb
 } from "lucide-react";
 import { ProtocolBadge } from "@/components/machines/ProtocolBadge";
 import { StatusDot } from "@/components/ui/StatusDot";
@@ -16,6 +16,7 @@ import { MachineInsightsGrid } from "@/components/machines/MachineInsightsGrid";
 import { Iso10816Gauge } from "@/components/machines/Iso10816Gauge";
 import { UniversalHardwareWizard } from "@/components/machines/UniversalHardwareWizard";
 import { ConnectedModelInspector } from "@/components/machines/ConnectedModelInspector";
+import { WebSerialDirectConnector } from "@/components/machines/WebSerialDirectConnector";
 import { api } from "@/lib/api";
 import { useMultiplexStream } from "@/lib/hooks/use-multiplex-stream";
 import { Machine, TelemetryPoint, MaintenanceTask, MachineInsights } from "@/types";
@@ -75,6 +76,7 @@ export default function MachineDetailPage({ params }: { params: Promise<{ id: st
   const [isMitigating, setIsMitigating] = useState(false);
   const [isTriggering, setIsTriggering] = useState(false);
   const [showHardwareWizard, setShowHardwareWizard] = useState(false);
+  const [showWebSerial, setShowWebSerial] = useState(false);
 
   useEffect(() => {
     const fetchData = async () => {
@@ -242,6 +244,18 @@ export default function MachineDetailPage({ params }: { params: Promise<{ id: st
             {showHardwareWizard ? "Hide Hardware Setup" : "Connect Microcontroller"}
           </button>
           <button 
+            onClick={() => setShowWebSerial(!showWebSerial)}
+            className={cn(
+              "px-4 py-2 rounded-lg text-sm font-bold transition-all flex items-center gap-2 border",
+              showWebSerial
+                ? "bg-sky-500 text-white border-sky-400 shadow-[0_0_15px_rgba(56,189,248,0.4)]"
+                : "bg-sky-500/10 border-sky-500/40 text-sky-400 hover:bg-sky-500/20"
+            )}
+          >
+            <Usb className="w-4 h-4" />
+            {showWebSerial ? "Hide USB Stream" : "Direct USB Stream (WebSerial)"}
+          </button>
+          <button 
             onClick={handleTriggerAnomaly}
             disabled={isTriggering}
             className="bg-amber-500/10 border border-amber-500/50 text-amber-500 px-4 py-2 rounded-lg text-sm font-bold hover:bg-amber-500/20 transition-all flex items-center gap-2"
@@ -264,6 +278,15 @@ export default function MachineDetailPage({ params }: { params: Promise<{ id: st
           <UniversalHardwareWizard
             initialMachineId={idStr}
             onComplete={() => setShowHardwareWizard(false)}
+          />
+        </div>
+      )}
+
+      {showWebSerial && (
+        <div className="relative animate-in slide-in-from-top-4 duration-300">
+          <WebSerialDirectConnector
+            initialMachineId={idStr}
+            onClose={() => setShowWebSerial(false)}
           />
         </div>
       )}
