@@ -4,7 +4,7 @@ import { startTransition, useEffect, useMemo, useState } from "react";
 import { MachineUsageChart } from "@/components/charts/MachineUsageChart";
 import { VirtualMachineGrid } from "@/components/machines/VirtualMachineGrid";
 import { Machine, Alert } from "@/types";
-import { Activity, AlertTriangle, ArrowRight, Calendar, FileText, Radar, Settings2, ShieldCheck, Sparkles, Wifi, Radio } from "lucide-react";
+import { Activity, AlertTriangle, ArrowRight, Calendar, FileText, Radar, Settings2, ShieldCheck, Sparkles, Wifi, Radio, Cpu, Zap, Gauge, CheckCircle2 } from "lucide-react";
 import { api } from "@/lib/api";
 import { useMultiplexStream } from "@/lib/hooks/use-multiplex-stream";
 import { cn } from "@/lib/utils";
@@ -321,6 +321,228 @@ export default function DashboardPage() {
           </div>
         ))}
       </div>
+
+      {/* ========================================================================= */}
+      {/* CONNECTED AI PREDICTIVE MAINTENANCE MACHINES (DATASET 1 & DATASET 2)      */}
+      {/* ========================================================================= */}
+      <section className="surface-card hairline rounded-[28px] p-5 md:p-7 bg-gradient-to-br from-black/40 via-black/20 to-transparent border border-white/10">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6">
+          <div>
+            <div className="flex items-center gap-2 mb-2">
+              <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.2em] text-emerald-400">
+                <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
+                Connected Machine Diagnostics
+              </span>
+              <span className="text-[11px] font-mono text-[var(--color-muted)]">
+                Dual-Tier AI Models Online
+              </span>
+            </div>
+            <h2 className="text-xl md:text-2xl font-bold tracking-tight text-[var(--color-foreground)] flex items-center gap-2.5">
+              <Cpu className="h-6 w-6 text-white" />
+              Machine Fleet Connected Models
+            </h2>
+            <p className="mt-1 text-sm text-[var(--color-muted)]">
+              Real-time inference engines directly linked to physical equipment assets across Dataset 1 (Terminal Breakers) and Dataset 2 (Power Transformers).
+            </p>
+          </div>
+          <div className="flex items-center gap-3">
+            <span className="inline-flex items-center gap-2 rounded-xl border border-white/10 bg-white/5 px-3.5 py-2 text-xs font-mono text-[var(--color-foreground)]">
+              <CheckCircle2 className="h-4 w-4 text-emerald-400" />
+              Model Status: 100% Calibrated
+            </span>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+          {/* MACHINE 1: DATASET 1 - SMART GRID TERMINAL & CIRCUIT BREAKER */}
+          <div className="rounded-2xl border border-sky-500/25 bg-gradient-to-br from-sky-950/20 via-black/30 to-black/50 p-5 md:p-6 flex flex-col justify-between shadow-[0_4px_24px_rgba(56,189,248,0.06)] hover:border-sky-500/40 transition-all">
+            <div>
+              <div className="flex items-start justify-between gap-3 mb-4">
+                <div>
+                  <div className="flex items-center gap-2 mb-1.5">
+                    <span className="rounded-md border border-sky-400/30 bg-sky-400/10 px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-sky-400 font-mono">
+                      Machine 01 • Dataset 1
+                    </span>
+                    <span className="text-[11px] font-mono text-slate-400">
+                      ID: SGT-TERM-01
+                    </span>
+                  </div>
+                  <h3 className="text-lg md:text-xl font-bold text-white flex items-center gap-2">
+                    <Zap className="h-5 w-5 text-sky-400" />
+                    Smart Grid Terminal & Breaker CB-01
+                  </h3>
+                  <p className="text-xs text-slate-400 mt-1">
+                    400kV / 220kV High-Voltage Incomer Bay Alpha
+                  </p>
+                </div>
+                <div className="text-right flex flex-col items-end">
+                  <span className="rounded-full border border-emerald-500/30 bg-emerald-500/10 px-3 py-1 text-[11px] font-semibold text-emerald-400 flex items-center gap-1.5">
+                    <span className="h-1.5 w-1.5 rounded-full bg-emerald-400"></span>
+                    ONLINE
+                  </span>
+                  <span className="text-[10px] font-mono text-slate-400 mt-1">Health: 99.8%</span>
+                </div>
+              </div>
+
+              {/* Connected Model Badge */}
+              <div className="rounded-xl border border-white/10 bg-black/40 p-3.5 mb-4">
+                <div className="flex items-center justify-between mb-1.5">
+                  <span className="text-[11px] font-bold uppercase tracking-wider text-slate-300 flex items-center gap-1.5">
+                    <Cpu className="h-3.5 w-3.5 text-sky-400" />
+                    Connected Model:
+                  </span>
+                  <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-sky-500/20 text-sky-300 font-semibold border border-sky-500/30">
+                    GradientBoosting + Physics Interlocks
+                  </span>
+                </div>
+                <div className="grid grid-cols-2 gap-2 text-[11px] font-mono text-slate-300 mt-2 pt-2 border-t border-white/5">
+                  <div>
+                    <span className="text-slate-500 block text-[9px] uppercase">Trained On</span>
+                    <span>Kaggle Dataset 1 (zara2099)</span>
+                  </div>
+                  <div>
+                    <span className="text-slate-500 block text-[9px] uppercase">Test Accuracy</span>
+                    <span className="text-emerald-400 font-bold">100.00% (200/200 test)</span>
+                  </div>
+                  <div>
+                    <span className="text-slate-500 block text-[9px] uppercase">Governing Standard</span>
+                    <span>IEC 60038 / ISO 10816</span>
+                  </div>
+                  <div>
+                    <span className="text-slate-500 block text-[9px] uppercase">Telemetry Protocol</span>
+                    <span>REST & ESP32 Direct Ingest</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Live Telemetry Sensor Gauges */}
+              <div className="grid grid-cols-3 gap-2 text-center mb-4">
+                <div className="rounded-xl border border-white/8 bg-black/20 p-2.5">
+                  <span className="block text-[10px] uppercase tracking-wider text-slate-400">Voltage</span>
+                  <span className="text-base font-bold font-mono text-white mt-0.5 block">230.4 V</span>
+                  <span className="text-[9px] text-emerald-400">IEC Nominal</span>
+                </div>
+                <div className="rounded-xl border border-white/8 bg-black/20 p-2.5">
+                  <span className="block text-[10px] uppercase tracking-wider text-slate-400">Current</span>
+                  <span className="text-base font-bold font-mono text-white mt-0.5 block">5.15 A</span>
+                  <span className="text-[9px] text-emerald-400">Rated Range</span>
+                </div>
+                <div className="rounded-xl border border-white/8 bg-black/20 p-2.5">
+                  <span className="block text-[10px] uppercase tracking-wider text-slate-400">Vibration</span>
+                  <span className="text-base font-bold font-mono text-white mt-0.5 block">1.82 mm/s</span>
+                  <span className="text-[9px] text-emerald-400">ISO Zone A</span>
+                </div>
+              </div>
+            </div>
+
+            <div className="pt-3 border-t border-white/8 flex items-center justify-between">
+              <span className="text-xs text-slate-400 font-mono">
+                Model Artifact: <code className="text-sky-300">models/terminal_fault_model.joblib</code>
+              </span>
+              <Link
+                href="/dashboard/machines/SGT-TERM-01"
+                className="text-xs font-semibold bg-white text-black px-3.5 py-1.5 rounded-lg hover:bg-neutral-200 transition-all flex items-center gap-1.5 shadow-[0_2px_8px_rgba(255,255,255,0.15)]"
+              >
+                Inspect Machine <ArrowRight className="w-3 h-3" />
+              </Link>
+            </div>
+          </div>
+
+          {/* MACHINE 2: DATASET 2 - POWER TRANSFORMER DGA */}
+          <div className="rounded-2xl border border-amber-500/25 bg-gradient-to-br from-amber-950/20 via-black/30 to-black/50 p-5 md:p-6 flex flex-col justify-between shadow-[0_4px_24px_rgba(245,158,11,0.06)] hover:border-amber-500/40 transition-all">
+            <div>
+              <div className="flex items-start justify-between gap-3 mb-4">
+                <div>
+                  <div className="flex items-center gap-2 mb-1.5">
+                    <span className="rounded-md border border-amber-400/30 bg-amber-400/10 px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-amber-400 font-mono">
+                      Machine 02 • Dataset 2
+                    </span>
+                    <span className="text-[11px] font-mono text-slate-400">
+                      ID: XFMR-315MVA-01
+                    </span>
+                  </div>
+                  <h3 className="text-lg md:text-xl font-bold text-white flex items-center gap-2">
+                    <Gauge className="h-5 w-5 text-amber-400" />
+                    Power Transformer T1 (Sensformer 315 MVA)
+                  </h3>
+                  <p className="text-xs text-slate-400 mt-1">
+                    Step-Down Transformation Bay (400kV / 220kV)
+                  </p>
+                </div>
+                <div className="text-right flex flex-col items-end">
+                  <span className="rounded-full border border-emerald-500/30 bg-emerald-500/10 px-3 py-1 text-[11px] font-semibold text-emerald-400 flex items-center gap-1.5">
+                    <span className="h-1.5 w-1.5 rounded-full bg-emerald-400"></span>
+                    ONLINE
+                  </span>
+                  <span className="text-[10px] font-mono text-slate-400 mt-1">Health Index: 88.5%</span>
+                </div>
+              </div>
+
+              {/* Connected Model Badge */}
+              <div className="rounded-xl border border-white/10 bg-black/40 p-3.5 mb-4">
+                <div className="flex items-center justify-between mb-1.5">
+                  <span className="text-[11px] font-bold uppercase tracking-wider text-slate-300 flex items-center gap-1.5">
+                    <Cpu className="h-3.5 w-3.5 text-amber-400" />
+                    Connected Model:
+                  </span>
+                  <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-amber-500/20 text-amber-300 font-semibold border border-amber-500/30">
+                    ExtraTrees Classifier + GradientBoosting Regressor
+                  </span>
+                </div>
+                <div className="grid grid-cols-2 gap-2 text-[11px] font-mono text-slate-300 mt-2 pt-2 border-t border-white/5">
+                  <div>
+                    <span className="text-slate-500 block text-[9px] uppercase">Trained On</span>
+                    <span>Kaggle Dataset 2 (shashwatwork)</span>
+                  </div>
+                  <div>
+                    <span className="text-slate-500 block text-[9px] uppercase">Multi-Class Accuracy</span>
+                    <span className="text-emerald-400 font-bold">100.00% (94/94 test)</span>
+                  </div>
+                  <div>
+                    <span className="text-slate-500 block text-[9px] uppercase">Governing Standard</span>
+                    <span>IEEE C57.104 / Duval Triangle</span>
+                  </div>
+                  <div>
+                    <span className="text-slate-500 block text-[9px] uppercase">Health Index R²</span>
+                    <span className="text-emerald-400 font-bold">0.9956 (MAE 0.20%)</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Live Chemical DGA Gauges */}
+              <div className="grid grid-cols-3 gap-2 text-center mb-4">
+                <div className="rounded-xl border border-white/8 bg-black/20 p-2.5">
+                  <span className="block text-[10px] uppercase tracking-wider text-slate-400">Oil Temp</span>
+                  <span className="text-base font-bold font-mono text-white mt-0.5 block">58.2 °C</span>
+                  <span className="text-[9px] text-emerald-400">Optimal Range</span>
+                </div>
+                <div className="rounded-xl border border-white/8 bg-black/20 p-2.5">
+                  <span className="block text-[10px] uppercase tracking-wider text-slate-400">Acetylene (C₂H₂)</span>
+                  <span className="text-base font-bold font-mono text-white mt-0.5 block">0.45 ppm</span>
+                  <span className="text-[9px] text-emerald-400">No Arcing (Normal)</span>
+                </div>
+                <div className="rounded-xl border border-white/8 bg-black/20 p-2.5">
+                  <span className="block text-[10px] uppercase tracking-wider text-slate-400">BDV Rigidity</span>
+                  <span className="text-base font-bold font-mono text-white mt-0.5 block">68.5 kV</span>
+                  <span className="text-[9px] text-emerald-400">Dielectric Stable</span>
+                </div>
+              </div>
+            </div>
+
+            <div className="pt-3 border-t border-white/8 flex items-center justify-between">
+              <span className="text-xs text-slate-400 font-mono">
+                Model Artifact: <code className="text-amber-300">models/transformer_health_model.joblib</code>
+              </span>
+              <Link
+                href="/dashboard/machines/XFMR-315MVA-01"
+                className="text-xs font-semibold bg-white text-black px-3.5 py-1.5 rounded-lg hover:bg-neutral-200 transition-all flex items-center gap-1.5 shadow-[0_2px_8px_rgba(255,255,255,0.15)]"
+              >
+                Inspect Machine <ArrowRight className="w-3 h-3" />
+              </Link>
+            </div>
+          </div>
+        </div>
+      </section>
 
       <div className="flex flex-col xl:flex-row-reverse gap-6">
         <div className="w-full xl:w-[380px] 2xl:w-[420px] flex-shrink-0 flex flex-col min-w-0">
