@@ -87,11 +87,11 @@ class SemIfEngine:
         self,
         groq_api_key: Optional[str] = None,
         ollama_url: Optional[str] = None,
-        default_model: str = "llama-3.1-8b-instant"
+        default_model: Optional[str] = None
     ):
         self.groq_api_key = groq_api_key or os.getenv("GROQ_API_KEY")
         self.ollama_url = ollama_url or os.getenv("OLLAMA_URL", "http://localhost:11434/api")
-        self.default_model = default_model
+        self.default_model = default_model or os.getenv("GROQ_MODEL", "qwen/qwen3.8-27b")
         
         self.groq_client = None
         if self.groq_api_key and Groq:

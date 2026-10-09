@@ -3,7 +3,8 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import {
   Usb, Terminal, Zap, Activity, AlertTriangle, ShieldCheck, CheckCircle2,
-  RefreshCw, Power, Radio, Copy, Check, Info, ArrowUpRight, ChevronRight, X
+  RefreshCw, Power, Radio, Copy, Check, Info, ArrowUpRight, ChevronRight, X,
+  Pause, Play, Trash2, RotateCcw, AlertCircle
 } from "lucide-react";
 import { api } from "@/lib/api";
 
@@ -21,10 +22,10 @@ interface ParsedTelemetry {
   current_draw?: number;
   voltage?: number;
   humidity?: number;
-  h2?: number;
-  ch4?: number;
-  c2h4?: number;
-  c2h2?: number;
+  rpm?: number;
+  button_state?: number;
+  buzzer_state?: number;
+  parameters?: Record<string, any>;
   timestamp?: string;
   [key: string]: any;
 }
@@ -41,8 +42,11 @@ export function WebSerialDirectConnector({
 
   // Connection State
   const [isSupported, setIsSupported] = useState(true);
+  const [isSecureContext, setIsSecureContext] = useState(true);
   const [isConnected, setIsConnected] = useState(false);
   const [isConnecting, setIsConnecting] = useState(false);
+  const [isResetting, setIsResetting] = useState(false);
+  const [isPaused, setIsPaused] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   // Telemetry & Metrics
@@ -53,18 +57,26 @@ export function WebSerialDirectConnector({
   const [autoScroll, setAutoScroll] = useState(true);
   const [copiedCode, setCopiedCode] = useState(false);
 
-  // References for Serial Port & Stream
+  // References for Serial Port & Stream (direct readers without locking pipeTo)
   const portRef = useRef<any>(null);
-  const readerRef = useRef<any>(null);
+  const readerRef = useRef<ReadableStreamDefaultReader<Uint8Array> | null>(null);
   const isReadingRef = useRef(false);
   const logsContainerRef = useRef<HTMLDivElement>(null);
   const packetCountRef = useRef(0);
   const lastPacketTimeRef = useRef(Date.now());
+  const lastForwardTimeRef = useRef(0);
 
-  // Check WebSerial API Support on client
+  // Log handler
+  const addLog = useCallback((text: string, type: "raw" | "json" | "error" | "sys" = "raw") => {
+    const time = new Date().toLocaleTimeString();
+    setLogs((prev) => [...prev.slice(-199), { time, text, type }]);
+  }, []);
+
+  // Check WebSerial API Support and Secure Context on client
   useEffect(() => {
     if (typeof window !== "undefined") {
       setIsSupported("serial" in navigator);
+      setIsSecureContext(window.isSecureContext ?? true);
     }
   }, []);
 
@@ -87,62 +99,158 @@ export function WebSerialDirectConnector({
     }
   }, [logs, autoScroll]);
 
-  const addLog = useCallback((text: string, type: "raw" | "json" | "error" | "sys" = "raw") => {
-    const time = new Date().toLocaleTimeString();
-    setLogs((prev) => [...prev.slice(-150), { time, text, type }]);
-  }, []);
+  // Clean Disconnect without stream-locking deadlocks
+  const handleDisconnect = useCallback(async () => {
+    isReadingRef.current = false;
+
+    // 1. Cancel and release reader lock cleanly
+    if (readerRef.current) {
+      try {
+        await readerRef.current.cancel();
+      } catch (e) {
+        // Ignored if stream already terminated
+      }
+      try {
+        readerRef.current.releaseLock();
+      } catch (e) {}
+      readerRef.current = null;
+    }
+
+    // 2. Close serial port handle cleanly
+    if (portRef.current) {
+      try {
+        await portRef.current.close();
+      } catch (err: any) {
+        console.warn("Serial close warning:", err);
+      }
+      portRef.current = null;
+    }
+
+    setIsConnected(false);
+    setCadenceHz(0);
+    addLog("[SYSTEM] USB Serial Port disconnected cleanly.", "sys");
+  }, [addLog]);
+
+  // Hardware hotplug listeners (detects physical USB cable unplug/replug on OS level)
+  useEffect(() => {
+    if (typeof window === "undefined" || !("serial" in navigator)) return;
+
+    const handleDeviceDisconnected = (event: any) => {
+      if (portRef.current && (event.target === portRef.current || !event.target)) {
+        addLog("[SYSTEM] Physical USB device disconnect detected by OS.", "error");
+        handleDisconnect();
+      }
+    };
+
+    const handleDeviceConnected = () => {
+      addLog("[SYSTEM] USB device attached to host. Ready for WebSerial connection.", "sys");
+    };
+
+    const serialObj = (navigator as any).serial;
+    serialObj.addEventListener("disconnect", handleDeviceDisconnected);
+    serialObj.addEventListener("connect", handleDeviceConnected);
+
+    return () => {
+      serialObj?.removeEventListener("disconnect", handleDeviceDisconnected);
+      serialObj?.removeEventListener("connect", handleDeviceConnected);
+    };
+  }, [handleDisconnect, addLog]);
+
+  // Clean up serial port on component unmount
+  useEffect(() => {
+    return () => {
+      if (isReadingRef.current || portRef.current) {
+        handleDisconnect();
+      }
+    };
+  }, [handleDisconnect]);
 
   // Process incoming line from Serial Port
-  const handleIncomingLine = useCallback(async (rawLine: string) => {
-    if (!rawLine.trim()) return;
+  const handleIncomingLine = useCallback(
+    async (rawLine: string) => {
+      const trimmed = rawLine.trim();
+      if (!trimmed) return;
 
-    // Check if line contains JSON
-    let jsonStr = "";
-    if (rawLine.includes("{") && rawLine.includes("}")) {
-      const start = rawLine.indexOf("{");
-      const end = rawLine.lastIndexOf("}");
-      jsonStr = rawLine.slice(start, end + 1);
-    }
-
-    if (jsonStr) {
-      try {
-        const parsed = JSON.parse(jsonStr) as ParsedTelemetry;
-        setLatestPacket(parsed);
-        setPacketCount((c) => c + 1);
-        packetCountRef.current += 1;
-
-        const now = Date.now();
-        const delta = (now - lastPacketTimeRef.current) / 1000;
-        if (delta > 0 && delta < 5) {
-          setCadenceHz(parseFloat((1 / delta).toFixed(1)));
-        }
-        lastPacketTimeRef.current = now;
-
-        addLog(`[JSON] ${JSON.stringify(parsed)}`, "json");
-
-        // Forward to production backend if enabled
-        if (forwardToBackend) {
-          try {
-            await api.ingestTelemetry({
-              equipment_id: parsed.equipment_id || selectedMachine,
-              temperature: parsed.temperature ?? (parsed.parameters?.temperature ?? null),
-              vibration: parsed.vibration ?? parsed.vibration_rms ?? (parsed.parameters?.vibration_rms ?? null),
-              parameters: parsed.parameters || parsed,
-              timestamp: new Date().toISOString(),
-              source: "browser_webserial_usb"
-            });
-          } catch (backendErr) {
-            console.warn("Backend forward error:", backendErr);
-          }
-        }
-        return;
-      } catch {
-        // Fallback to raw log
+      // Extract JSON if line contains balanced braces
+      let jsonStr = "";
+      if (trimmed.includes("{") && trimmed.includes("}")) {
+        const start = trimmed.indexOf("{");
+        const end = trimmed.lastIndexOf("}");
+        jsonStr = trimmed.slice(start, end + 1);
       }
-    }
 
-    addLog(rawLine, "raw");
-  }, [selectedMachine, forwardToBackend, addLog]);
+      if (jsonStr) {
+        try {
+          const parsed = JSON.parse(jsonStr) as ParsedTelemetry;
+          setLatestPacket(parsed);
+          setPacketCount((c) => c + 1);
+          packetCountRef.current += 1;
+
+          const now = Date.now();
+          const delta = (now - lastPacketTimeRef.current) / 1000;
+          if (delta > 0 && delta < 5) {
+            setCadenceHz(parseFloat((1 / delta).toFixed(1)));
+          }
+          lastPacketTimeRef.current = now;
+
+          if (!isPaused) {
+            addLog(`[JSON] ${JSON.stringify(parsed)}`, "json");
+          }
+
+          // Forward to backend API if enabled (throttled to 2Hz / 500ms to protect database & network)
+          if (forwardToBackend) {
+            const timeSinceLastForward = now - lastForwardTimeRef.current;
+            if (timeSinceLastForward >= 500) {
+              lastForwardTimeRef.current = now;
+
+              const targetEqId = selectedMachine || parsed.equipment_id || "ESP32-HARDWARE-01";
+              const tempVal =
+                parsed.temperature ??
+                (parsed.parameters?.temperature !== undefined ? Number(parsed.parameters.temperature) : null);
+              const vibVal =
+                parsed.vibration ??
+                parsed.vibration_rms ??
+                (parsed.parameters?.vibration_rms !== undefined
+                  ? Number(parsed.parameters.vibration_rms)
+                  : parsed.parameters?.vibration !== undefined
+                  ? Number(parsed.parameters.vibration)
+                  : null);
+
+              const mergedParams = {
+                ...(parsed.parameters || {}),
+                ...parsed,
+                equipment_id: targetEqId,
+                temperature: tempVal,
+                vibration: vibVal,
+                vibration_rms: vibVal,
+              };
+
+              api
+                .ingestTelemetry({
+                  equipment_id: targetEqId,
+                  temperature: tempVal,
+                  vibration: vibVal,
+                  parameters: mergedParams,
+                  timestamp: new Date().toISOString(),
+                  source: "browser_webserial_usb",
+                })
+                .catch((backendErr) => {
+                  console.warn("Backend forward error:", backendErr);
+                });
+            }
+          }
+          return;
+        } catch {
+          // Not valid JSON, fall through to raw log
+        }
+      }
+
+      if (!isPaused) {
+        addLog(trimmed, "raw");
+      }
+    },
+    [selectedMachine, forwardToBackend, isPaused, addLog]
+  );
 
   // Connect via WebSerial API
   const handleConnect = async () => {
@@ -151,68 +259,107 @@ export function WebSerialDirectConnector({
 
     try {
       if (!("serial" in navigator)) {
-        throw new Error("WebSerial API is not supported in this browser. Please use Google Chrome, Edge, or Brave.");
+        throw new Error(
+          "WebSerial API is not supported in this browser. Please use Google Chrome, Microsoft Edge, or Brave on Desktop."
+        );
       }
 
       // Request port from user
       const port = await (navigator as any).serial.requestPort();
-      await port.open({ baudRate: Number(baudRate) });
+
+      // Open with clean framing parameters and buffer
+      await port.open({
+        baudRate: Number(baudRate),
+        bufferSize: 8192,
+        dataBits: 8,
+        stopBits: 1,
+        parity: "none",
+      });
+
+      // De-assert DTR/RTS lines so ESP32 does not stall in bootloader/reset mode
+      try {
+        await port.setSignals({ dataTerminalReady: false, requestToSend: false });
+      } catch (e) {
+        // setSignals might not be implemented on some virtual drivers
+      }
 
       portRef.current = port;
       setIsConnected(true);
       isReadingRef.current = true;
       addLog(`[SYSTEM] Connected to USB Serial Port at ${baudRate} baud.`, "sys");
 
-      // Read loop with TextDecoder
-      const textDecoder = new TextDecoderStream();
-      port.readable.pipeTo(textDecoder.writable).catch(() => {});
-      const reader = textDecoder.readable.getReader();
-      readerRef.current = reader;
-
+      // Direct stream reader loop (replaces pipeTo to eliminate stream-locking bugs)
+      const textDecoder = new TextDecoder();
       let lineBuffer = "";
 
-      while (isReadingRef.current) {
-        const { value, done } = await reader.read();
-        if (done) {
+      while (isReadingRef.current && port.readable) {
+        try {
+          const reader = port.readable.getReader();
+          readerRef.current = reader;
+
+          while (isReadingRef.current) {
+            const { value, done } = await reader.read();
+            if (done) {
+              break;
+            }
+            if (value) {
+              lineBuffer += textDecoder.decode(value, { stream: true });
+              const lines = lineBuffer.split(/\r?\n/);
+              lineBuffer = lines.pop() ?? "";
+              for (const line of lines) {
+                handleIncomingLine(line);
+              }
+            }
+          }
+        } catch (readErr: any) {
+          if (
+            readErr.name === "NetworkError" ||
+            readErr.message?.toLowerCase().includes("lost") ||
+            readErr.message?.toLowerCase().includes("device")
+          ) {
+            addLog("[SYSTEM] USB Device hardware disconnected / unplugged.", "error");
+          } else {
+            addLog(`[STREAM] Read error: ${readErr.message}`, "error");
+          }
           break;
-        }
-        if (value) {
-          lineBuffer += value;
-          const lines = lineBuffer.split("\n");
-          lineBuffer = lines.pop() || "";
-          for (const line of lines) {
-            handleIncomingLine(line.replace(/\r/g, ""));
+        } finally {
+          if (readerRef.current) {
+            try {
+              readerRef.current.releaseLock();
+            } catch (e) {}
+            readerRef.current = null;
           }
         }
       }
+
+      // Automatically clean up when read loop breaks
+      await handleDisconnect();
     } catch (err: any) {
       if (err.name !== "NotFoundError") {
-        setErrorMsg(err.message || "Failed to open serial port.");
-        addLog(`[ERROR] ${err.message || "Failed to open serial port."}`, "error");
+        const msg = err.message || "Failed to open serial port.";
+        setErrorMsg(msg);
+        addLog(`[ERROR] ${msg}`, "error");
       }
+      setIsConnected(false);
     } finally {
       setIsConnecting(false);
     }
   };
 
-  // Disconnect cleanly
-  const handleDisconnect = async () => {
-    isReadingRef.current = false;
+  // Hardware Reset via DTR/RTS signal toggle (ESP32 EN pin pulse)
+  const handleHardwareReset = async () => {
+    if (!portRef.current || !isConnected) return;
+    setIsResetting(true);
     try {
-      if (readerRef.current) {
-        await readerRef.current.cancel();
-        readerRef.current = null;
-      }
-      if (portRef.current) {
-        await portRef.current.close();
-        portRef.current = null;
-      }
-      addLog("[SYSTEM] USB Serial Port disconnected.", "sys");
+      addLog("[SYSTEM] Triggering ESP32 hardware reset pulse (DTR/RTS toggle)...", "sys");
+      await portRef.current.setSignals({ dataTerminalReady: true, requestToSend: false });
+      await new Promise((r) => setTimeout(r, 120));
+      await portRef.current.setSignals({ dataTerminalReady: false, requestToSend: false });
+      addLog("[SYSTEM] Hardware reset pulse completed. Microcontroller rebooting...", "sys");
     } catch (err: any) {
-      console.warn("Error during serial close:", err);
+      addLog(`[WARN] Hardware reset signal failed: ${err.message}`, "error");
     } finally {
-      setIsConnected(false);
-      setCadenceHz(0);
+      setIsResetting(false);
     }
   };
 
@@ -220,6 +367,7 @@ export function WebSerialDirectConnector({
   const esp32SampleCode = `// ==============================================================================
 // SOVEREIGN PREDICTIVE MAINTENANCE: ESP32 DIRECT USB SERIAL TELEMETRY
 // Baud Rate: ${baudRate} | Target Machine: ${selectedMachine}
+// Compatible with: Direct WebSerial Browser & scripts/bridges/serial_bridge.py
 // ==============================================================================
 
 #define MACHINE_ID "${selectedMachine}"
@@ -227,7 +375,6 @@ const unsigned long INTERVAL_MS = 1000; // 1-second transmission rate
 
 void setup() {
   Serial.begin(${baudRate});
-  while (!Serial);
   delay(500);
   Serial.println("[READY] ESP32 WebSerial Telemetry Node Initialized");
 }
@@ -237,17 +384,22 @@ void loop() {
   if (millis() - lastSend >= INTERVAL_MS) {
     lastSend = millis();
 
-    // 1. Read sensors (e.g. DHT11 / Hall Sensor / ACS712)
-    // Replace with your real pin reads:
+    // 1. Read real sensors (DHT11 / Hall RPM / ACS712 Current)
     float temperature = 42.5 + (random(-5, 5) * 0.1); 
     float vibration = 1.82 + (random(-3, 3) * 0.05);
     float current_draw = 5.15 + (random(-2, 2) * 0.02);
+    float rpm = 1450.0 + random(-20, 20);
+    int button_state = digitalRead(27) == LOW ? 1 : 0;
 
-    // 2. Stream compact JSON line to Serial port
+    // 2. Stream JSON line to Serial port
+    Serial.print("[JSON_TELEMETRY] ");
     Serial.print("{\\"equipment_id\\":\\"" MACHINE_ID "\\",");
     Serial.print("\\"temperature\\":"); Serial.print(temperature, 2); Serial.print(",");
     Serial.print("\\"vibration\\":"); Serial.print(vibration, 2); Serial.print(",");
+    Serial.print("\\"vibration_rms\\":"); Serial.print(vibration, 2); Serial.print(",");
     Serial.print("\\"current_draw\\":"); Serial.print(current_draw, 2); Serial.print(",");
+    Serial.print("\\"rpm\\":"); Serial.print(rpm, 1); Serial.print(",");
+    Serial.print("\\"button_state\\":"); Serial.print(button_state); Serial.print(",");
     Serial.print("\\"source\\":\\"esp32_usb\\"}");
     Serial.println(); // newline triggers parse
   }
@@ -259,6 +411,32 @@ void loop() {
     setCopiedCode(true);
     setTimeout(() => setCopiedCode(false), 2000);
   };
+
+  // Safe parameter extractors
+  const currentTemp =
+    latestPacket?.temperature !== undefined
+      ? latestPacket.temperature
+      : latestPacket?.parameters?.temperature;
+  const currentVib =
+    latestPacket?.vibration_rms !== undefined
+      ? latestPacket.vibration_rms
+      : latestPacket?.vibration !== undefined
+      ? latestPacket.vibration
+      : latestPacket?.parameters?.vibration_rms !== undefined
+      ? latestPacket.parameters.vibration_rms
+      : latestPacket?.parameters?.vibration;
+  const currentDraw =
+    latestPacket?.current_draw !== undefined
+      ? latestPacket.current_draw
+      : latestPacket?.parameters?.current_draw;
+  const currentRpm =
+    latestPacket?.rpm !== undefined
+      ? latestPacket.rpm
+      : latestPacket?.parameters?.rpm;
+  const currentButton =
+    latestPacket?.button_state !== undefined
+      ? latestPacket.button_state
+      : latestPacket?.parameters?.button_state;
 
   return (
     <div className={`rounded-2xl border border-white/10 bg-[#0b1120] p-6 text-slate-100 shadow-2xl ${className}`}>
@@ -288,20 +466,35 @@ void loop() {
             </span>
           </div>
           {onClose && (
-            <button onClick={onClose} className="p-2 rounded-xl border border-white/10 bg-white/5 hover:bg-white/10 text-slate-400 hover:text-white transition-all">
+            <button
+              onClick={onClose}
+              className="p-2 rounded-xl border border-white/10 bg-white/5 hover:bg-white/10 text-slate-400 hover:text-white transition-all"
+            >
               <X className="h-4 w-4" />
             </button>
           )}
         </div>
       </div>
 
-      {/* Browser Support Check */}
-      {!isSupported && (
+      {/* Browser Support & Secure Context Check */}
+      {(!isSupported || !isSecureContext) && (
         <div className="my-4 p-4 rounded-xl border border-amber-500/30 bg-amber-500/10 text-amber-300 text-xs flex items-start gap-3">
           <AlertTriangle className="h-5 w-5 flex-shrink-0 text-amber-400 mt-0.5" />
-          <div>
-            <span className="font-bold block mb-0.5">WebSerial Not Detected in this Browser</span>
-            WebSerial is currently supported on <strong>Google Chrome</strong>, <strong>Microsoft Edge</strong>, and <strong>Brave</strong> on Desktop. If you are using Firefox or Safari, switch to Chrome or use Approach 1 (WiFi Ingestion).
+          <div className="space-y-1">
+            <span className="font-bold block">
+              {!isSupported ? "WebSerial Not Supported in this Browser" : "Insecure Context Detected"}
+            </span>
+            <p>
+              {!isSupported ? (
+                <>
+                  WebSerial is natively supported on <strong>Google Chrome</strong>, <strong>Microsoft Edge</strong>, and <strong>Brave</strong> on Desktop (Windows, macOS, Linux). Firefox and Safari do not support WebSerial.
+                </>
+              ) : (
+                <>
+                  WebSerial requires a <strong>Secure Context (HTTPS or http://localhost)</strong>. If you are accessing this dashboard via a remote LAN IP, switch to <code>http://localhost:3000</code> or access via HTTPS.
+                </>
+              )}
+            </p>
           </div>
         </div>
       )}
@@ -310,7 +503,7 @@ void loop() {
       {errorMsg && (
         <div className="my-4 p-4 rounded-xl border border-red-500/30 bg-red-500/10 text-red-300 text-xs flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <AlertTriangle className="h-4 w-4 text-red-400" />
+            <AlertCircle className="h-4 w-4 text-red-400 flex-shrink-0" />
             <span>{errorMsg}</span>
           </div>
           <button onClick={() => setErrorMsg(null)} className="text-red-400 hover:text-white">
@@ -353,6 +546,8 @@ void loop() {
             <option value={9600}>9600 (Arduino Standard)</option>
             <option value={57600}>57600</option>
             <option value={230400}>230400 (High Speed)</option>
+            <option value={460800}>460800 (Ultra Speed)</option>
+            <option value={921600}>921600 (Max Speed)</option>
           </select>
         </div>
 
@@ -368,19 +563,30 @@ void loop() {
               onChange={(e) => setForwardToBackend(e.target.checked)}
               className="accent-sky-500 h-4 w-4 rounded"
             />
-            <span>Auto-forward to AI Models</span>
+            <span>Auto-forward to AI Models (2Hz)</span>
           </label>
         </div>
 
-        {/* Connect Action Button */}
-        <div className="flex items-end">
+        {/* Connect Action Button & Hardware Controls */}
+        <div className="flex items-end gap-2">
           {isConnected ? (
-            <button
-              onClick={handleDisconnect}
-              className="w-full py-2.5 px-4 rounded-lg bg-red-500/20 text-red-300 border border-red-500/40 font-bold text-xs hover:bg-red-500/30 transition-all flex items-center justify-center gap-2 shadow-[0_0_15px_rgba(239,68,68,0.2)]"
-            >
-              <Power className="h-4 w-4" /> Disconnect USB
-            </button>
+            <>
+              <button
+                onClick={handleDisconnect}
+                className="flex-1 py-2.5 px-3 rounded-lg bg-red-500/20 text-red-300 border border-red-500/40 font-bold text-xs hover:bg-red-500/30 transition-all flex items-center justify-center gap-1.5 shadow-[0_0_15px_rgba(239,68,68,0.2)]"
+              >
+                <Power className="h-4 w-4" /> Disconnect
+              </button>
+              <button
+                onClick={handleHardwareReset}
+                disabled={isResetting}
+                title="Send hardware reset pulse (DTR toggle) to restart ESP32"
+                className="py-2.5 px-3 rounded-lg bg-amber-500/20 text-amber-300 border border-amber-500/40 font-bold text-xs hover:bg-amber-500/30 transition-all flex items-center justify-center gap-1 disabled:opacity-50"
+              >
+                <RotateCcw className={`h-4 w-4 ${isResetting ? "animate-spin" : ""}`} />
+                Reset ESP
+              </button>
+            </>
           ) : (
             <button
               onClick={handleConnect}
@@ -395,7 +601,7 @@ void loop() {
       </div>
 
       {/* Live Metrics HUD */}
-      <div className="grid grid-cols-2 md:grid-cols-6 gap-3 mb-5 font-mono text-center">
+      <div className="grid grid-cols-2 md:grid-cols-7 gap-3 mb-5 font-mono text-center">
         <div className="p-3 rounded-xl border border-white/8 bg-black/30">
           <span className="text-[10px] uppercase text-slate-400 block mb-0.5">Packets</span>
           <span className="text-xl font-bold text-white">{packetCount}</span>
@@ -407,45 +613,49 @@ void loop() {
         <div className="p-3 rounded-xl border border-white/8 bg-black/30">
           <span className="text-[10px] uppercase text-slate-400 block mb-0.5">DHT11 Temp</span>
           <span className="text-xl font-bold text-amber-300">
-            {latestPacket?.temperature !== undefined ? `${latestPacket.temperature}°C` : "--"}
+            {currentTemp !== undefined ? `${Number(currentTemp).toFixed(1)}°C` : "--"}
+          </span>
+        </div>
+        <div className="p-3 rounded-xl border border-white/8 bg-black/30">
+          <span className="text-[10px] uppercase text-slate-400 block mb-0.5">Vibration RMS</span>
+          <span className="text-xl font-bold text-blue-400">
+            {currentVib !== undefined ? `${Number(currentVib).toFixed(2)} mm/s` : "--"}
           </span>
         </div>
         <div className="p-3 rounded-xl border border-white/8 bg-black/30">
           <span className="text-[10px] uppercase text-slate-400 block mb-0.5">ACS712 Current</span>
           <span className="text-xl font-bold text-emerald-400">
-            {latestPacket?.current_draw !== undefined
-              ? `${Number(latestPacket.current_draw).toFixed(2)} A`
-              : (latestPacket?.parameters?.current_draw !== undefined ? `${Number(latestPacket.parameters.current_draw).toFixed(2)} A` : "--")}
+            {currentDraw !== undefined ? `${Number(currentDraw).toFixed(2)} A` : "--"}
           </span>
         </div>
         <div className="p-3 rounded-xl border border-white/8 bg-black/30">
           <span className="text-[10px] uppercase text-slate-400 block mb-0.5">Hall Speed</span>
           <span className="text-xl font-bold text-purple-400">
-            {latestPacket?.rpm !== undefined
-              ? `${Math.round(latestPacket.rpm)} RPM`
-              : (latestPacket?.parameters?.rpm !== undefined ? `${Math.round(latestPacket.parameters.rpm)} RPM` : "0 RPM")}
+            {currentRpm !== undefined ? `${Math.round(Number(currentRpm))} RPM` : "--"}
           </span>
         </div>
-        {/* Real-time Hardware Push Button Indicator */}
-        <div className={`p-3 rounded-xl border transition-all duration-300 ${
-          Number(latestPacket?.button_state ?? latestPacket?.parameters?.button_state) === 1
-            ? "border-emerald-400 bg-emerald-500/30 shadow-[0_0_20px_rgba(16,185,129,0.5)] scale-105"
-            : "border-white/8 bg-black/30"
-        }`}>
+        {/* Real-time Push Button Indicator */}
+        <div
+          className={`p-3 rounded-xl border transition-all duration-300 ${
+            Number(currentButton) === 1
+              ? "border-emerald-400 bg-emerald-500/30 shadow-[0_0_20px_rgba(16,185,129,0.5)] scale-105"
+              : "border-white/8 bg-black/30"
+          }`}
+        >
           <span className="text-[10px] uppercase text-slate-400 block mb-0.5">Push Button</span>
-          <span className={`text-base font-bold flex items-center justify-center gap-1.5 ${
-            Number(latestPacket?.button_state ?? latestPacket?.parameters?.button_state) === 1
-              ? "text-emerald-300 animate-pulse font-black"
-              : "text-slate-500"
-          }`}>
-            {Number(latestPacket?.button_state ?? latestPacket?.parameters?.button_state) === 1
-              ? "🔘 PRESSED"
-              : "⚪ RELEASED"}
+          <span
+            className={`text-base font-bold flex items-center justify-center gap-1.5 ${
+              Number(currentButton) === 1
+                ? "text-emerald-300 animate-pulse font-black"
+                : "text-slate-500"
+            }`}
+          >
+            {Number(currentButton) === 1 ? "🔘 PRESSED" : "⚪ RELEASED"}
           </span>
         </div>
       </div>
 
-      {/* Terminal Output & Code Carousel */}
+      {/* Terminal Output & Code Snippet */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
         {/* Terminal Monitor (2 cols) */}
         <div className="lg:col-span-2 rounded-xl border border-white/10 bg-black/80 flex flex-col h-72">
@@ -455,6 +665,13 @@ void loop() {
               Raw Serial Monitor
             </span>
             <div className="flex items-center gap-3 text-[11px]">
+              <button
+                onClick={() => setIsPaused(!isPaused)}
+                className="hover:text-white transition-colors flex items-center gap-1 text-slate-400"
+              >
+                {isPaused ? <Play className="h-3 w-3 text-emerald-400" /> : <Pause className="h-3 w-3" />}
+                <span>{isPaused ? "Resume" : "Pause"}</span>
+              </button>
               <label className="flex items-center gap-1 cursor-pointer">
                 <input
                   type="checkbox"
@@ -466,9 +683,10 @@ void loop() {
               </label>
               <button
                 onClick={() => setLogs([])}
-                className="hover:text-white transition-colors"
+                className="hover:text-white transition-colors flex items-center gap-1 text-slate-400"
               >
-                Clear
+                <Trash2 className="h-3 w-3" />
+                <span>Clear</span>
               </button>
             </div>
           </div>

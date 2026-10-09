@@ -1040,9 +1040,9 @@ async def ingest_iot_telemetry(request: IoTIngestRequest):
                 _last_temp_alert_level[equipment_id] = "NORMAL"
 
     try:
-        await asyncio.wait_for(r.publish(REDIS_CHANNEL, json.dumps(payload)), timeout=0.1)
-        await asyncio.wait_for(r.xadd(REDIS_STREAM_KEY, {"data": json.dumps(payload)}, maxlen=10000), timeout=0.1)
-    except Exception:
+        await asyncio.wait_for(r.publish(REDIS_CHANNEL, json.dumps(payload)), timeout=0.2)
+        await asyncio.wait_for(r.xadd(REDIS_STREAM_KEY, {"data": json.dumps(payload)}, maxlen=10000), timeout=0.2)
+    except Exception as exc:
         pass
 
     command_action = None
