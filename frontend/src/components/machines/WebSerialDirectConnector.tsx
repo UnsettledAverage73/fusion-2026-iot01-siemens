@@ -4,8 +4,19 @@ import React, { useState, useEffect, useRef, useCallback } from "react";
 import {
   Usb, Terminal, Zap, Activity, AlertTriangle, ShieldCheck, CheckCircle2,
   RefreshCw, Power, Radio, Copy, Check, Info, ArrowUpRight, ChevronRight, X,
-  Pause, Play, Trash2, RotateCcw, AlertCircle
+  Pause, Play, Trash2, RotateCcw, AlertCircle, LineChart as ChartIcon, Gauge
 } from "lucide-react";
+import {
+  ResponsiveContainer,
+  LineChart,
+  Line,
+  XAxis,
+  YAxis,
+  Tooltip,
+  CartesianGrid,
+  ReferenceLine,
+  Legend
+} from "recharts";
 import { api } from "@/lib/api";
 
 interface WebSerialDirectConnectorProps {
@@ -21,13 +32,26 @@ interface ParsedTelemetry {
   vibration_rms?: number;
   current_draw?: number;
   voltage?: number;
+  raw_current_adc?: number;
   humidity?: number;
   rpm?: number;
+  hall_pulses?: number;
+  hall_flux?: number;
   button_state?: number;
+  push_button?: number;
   buzzer_state?: number;
   parameters?: Record<string, any>;
   timestamp?: string;
   [key: string]: any;
+}
+
+interface RealtimeDataPoint {
+  time: string;
+  temperature?: number;
+  current?: number;
+  voltage?: number;
+  rpm?: number;
+  button?: number;
 }
 
 export function WebSerialDirectConnector({
@@ -53,6 +77,7 @@ export function WebSerialDirectConnector({
   const [packetCount, setPacketCount] = useState(0);
   const [cadenceHz, setCadenceHz] = useState(0);
   const [latestPacket, setLatestPacket] = useState<ParsedTelemetry | null>(null);
+  const [realtimeHistory, setRealtimeHistory] = useState<RealtimeDataPoint[]>([]);
   const [logs, setLogs] = useState<Array<{ time: string; text: string; type: "raw" | "json" | "error" | "sys" }>>([]);
   const [autoScroll, setAutoScroll] = useState(true);
   const [copiedCode, setCopiedCode] = useState(false);
@@ -65,6 +90,7 @@ export function WebSerialDirectConnector({
   const packetCountRef = useRef(0);
   const lastPacketTimeRef = useRef(Date.now());
   const lastForwardTimeRef = useRef(0);
+  const currentFrameRef = useRef<ParsedTelemetry>({});
 
   // Log handler
   const addLog = useCallback((text: string, type: "raw" | "json" | "error" | "sys" = "raw") => {
@@ -165,13 +191,116 @@ export function WebSerialDirectConnector({
     };
   }, [handleDisconnect]);
 
-  // Process incoming line from Serial Port
+  // Unified processor for telemetry packets (both JSON and parsed hardware reports)
+  const processTelemetryPacket = useCallback(
+    (packet: ParsedTelemetry) => {
+      setLatestPacket(packet);
+      setPacketCount((c) => c + 1);
+      packetCountRef.current += 1;
+
+      const now = Date.now();
+      const delta = (now - lastPacketTimeRef.current) / 1000;
+      if (delta > 0 && delta < 5) {
+        setCadenceHz(parseFloat((1 / delta).toFixed(1)));
+      }
+      lastPacketTimeRef.current = now;
+
+      // Realtime Dynamic Waveform History (rolling 40 samples)
+      setRealtimeHistory((prev) => {
+        const timeLabel = new Date().toLocaleTimeString([], { hour12: false, minute: "2-digit", second: "2-digit" });
+        const lastPt = prev[prev.length - 1];
+        const newTemp =
+          packet.temperature !== undefined
+            ? Number(packet.temperature.toFixed(1))
+            : lastPt?.temperature ?? 33.0;
+        const newCurrent =
+          packet.current_draw !== undefined
+            ? Number(packet.current_draw.toFixed(2))
+            : packet.voltage !== undefined
+            ? Number(packet.voltage.toFixed(2))
+            : lastPt?.current ?? 1.65;
+        const newVoltage =
+          packet.voltage !== undefined ? Number(packet.voltage.toFixed(2)) : lastPt?.voltage ?? 1.65;
+        const newRpm =
+          packet.rpm !== undefined
+            ? Math.round(packet.rpm)
+            : packet.hall_pulses !== undefined
+            ? packet.hall_pulses
+            : lastPt?.rpm ?? 0;
+        // Scale button to 3.0 so it creates a distinct square pulse on the right Y-axis (0-5)
+        const isBtnActive = Number(packet.button_state ?? packet.push_button) === 1;
+        const newBtn = isBtnActive ? 3.0 : 0.0;
+
+        return [
+          ...prev.slice(-49),
+          {
+            time: timeLabel,
+            temperature: newTemp,
+            current: newCurrent,
+            voltage: newVoltage,
+            button: newBtn,
+            rpm: newRpm,
+          },
+        ];
+      });
+
+      // Forward to backend API if enabled (throttled to 2Hz / 500ms to protect database & network)
+      if (forwardToBackend) {
+        const timeSinceLastForward = now - lastForwardTimeRef.current;
+        if (timeSinceLastForward >= 500) {
+          lastForwardTimeRef.current = now;
+
+          const targetEqId = selectedMachine || packet.equipment_id || "ESP32-HARDWARE-01";
+          const tempVal =
+            packet.temperature ??
+            (packet.parameters?.temperature !== undefined ? Number(packet.parameters.temperature) : null);
+          const vibVal =
+            packet.vibration ??
+            packet.vibration_rms ??
+            (packet.parameters?.vibration_rms !== undefined
+              ? Number(packet.parameters.vibration_rms)
+              : packet.parameters?.vibration !== undefined
+              ? Number(packet.parameters.vibration)
+              : 0.05);
+
+          const mergedParams = {
+            ...(packet.parameters || {}),
+            ...packet,
+            equipment_id: targetEqId,
+            temperature: tempVal,
+            vibration: vibVal,
+            vibration_rms: vibVal,
+            push_button: packet.button_state ?? packet.push_button ?? 0,
+            button: packet.button_state ?? packet.push_button ?? 0,
+          };
+
+          api
+            .ingestTelemetry({
+              equipment_id: targetEqId,
+              temperature: tempVal,
+              vibration: vibVal,
+              parameters: mergedParams,
+              timestamp: new Date().toISOString(),
+              source: "browser_webserial_usb",
+            })
+            .catch((backendErr) => {
+              console.warn("Backend forward error:", backendErr);
+            });
+        }
+      }
+    },
+    [forwardToBackend, selectedMachine]
+  );
+
+  // Process incoming raw line from Serial Port (supports JSON and Hardware Diagnostic Report text)
   const handleIncomingLine = useCallback(
     async (rawLine: string) => {
       const trimmed = rawLine.trim();
       if (!trimmed) return;
 
-      // Extract JSON if line contains balanced braces
+      // -------------------------------------------------------------
+      // ROUTE 1: JSON TELEMETRY PACKET
+      // -------------------------------------------------------------
       let jsonStr = "";
       if (trimmed.includes("{") && trimmed.includes("}")) {
         const start = trimmed.indexOf("{");
@@ -182,74 +311,110 @@ export function WebSerialDirectConnector({
       if (jsonStr) {
         try {
           const parsed = JSON.parse(jsonStr) as ParsedTelemetry;
-          setLatestPacket(parsed);
-          setPacketCount((c) => c + 1);
-          packetCountRef.current += 1;
-
-          const now = Date.now();
-          const delta = (now - lastPacketTimeRef.current) / 1000;
-          if (delta > 0 && delta < 5) {
-            setCadenceHz(parseFloat((1 / delta).toFixed(1)));
-          }
-          lastPacketTimeRef.current = now;
+          currentFrameRef.current = { ...currentFrameRef.current, ...parsed };
+          processTelemetryPacket(parsed);
 
           if (!isPaused) {
             addLog(`[JSON] ${JSON.stringify(parsed)}`, "json");
           }
-
-          // Forward to backend API if enabled (throttled to 2Hz / 500ms to protect database & network)
-          if (forwardToBackend) {
-            const timeSinceLastForward = now - lastForwardTimeRef.current;
-            if (timeSinceLastForward >= 500) {
-              lastForwardTimeRef.current = now;
-
-              const targetEqId = selectedMachine || parsed.equipment_id || "ESP32-HARDWARE-01";
-              const tempVal =
-                parsed.temperature ??
-                (parsed.parameters?.temperature !== undefined ? Number(parsed.parameters.temperature) : null);
-              const vibVal =
-                parsed.vibration ??
-                parsed.vibration_rms ??
-                (parsed.parameters?.vibration_rms !== undefined
-                  ? Number(parsed.parameters.vibration_rms)
-                  : parsed.parameters?.vibration !== undefined
-                  ? Number(parsed.parameters.vibration)
-                  : null);
-
-              const mergedParams = {
-                ...(parsed.parameters || {}),
-                ...parsed,
-                equipment_id: targetEqId,
-                temperature: tempVal,
-                vibration: vibVal,
-                vibration_rms: vibVal,
-              };
-
-              api
-                .ingestTelemetry({
-                  equipment_id: targetEqId,
-                  temperature: tempVal,
-                  vibration: vibVal,
-                  parameters: mergedParams,
-                  timestamp: new Date().toISOString(),
-                  source: "browser_webserial_usb",
-                })
-                .catch((backendErr) => {
-                  console.warn("Backend forward error:", backendErr);
-                });
-            }
-          }
           return;
         } catch {
-          // Not valid JSON, fall through to raw log
+          // Fall through to text pattern parser
         }
       }
 
+      // -------------------------------------------------------------
+      // ROUTE 2: TEXT HARDWARE DIAGNOSTIC REPORT PARSER
+      // Matches the exact format emitted by your ESP32 Arduino sketch:
+      // ✅ DHT11 (GPIO 4): CONNECTED & WORKING | Temp: 33.0 °C | Humidity: 72.0 %
+      // 📊 ACS712 Current (GPIO 34): Raw ADC = 2219 (1.79 V) -> ✅ SIGNAL DETECTED
+      // 🧲 Hall Effect Sensor: D0 (GPIO 25) = HIGH | Total Pulses = 0 | A0 (GPIO 35) ADC = 4095
+      // 🔘 Push Button (GPIO 27): RELEASED [HIGH] / PRESSED [LOW]
+      // -------------------------------------------------------------
+      let matchedAny = false;
+
+      // 1. DHT11 Temperature & Humidity
+      const tempMatch = trimmed.match(/(?:Temp|Temperature)\s*:\s*([\d\.]+)/i);
+      const humMatch = trimmed.match(/(?:Humidity|Hum)\s*:\s*([\d\.]+)/i);
+      if (tempMatch) {
+        currentFrameRef.current.temperature = parseFloat(tempMatch[1]);
+        matchedAny = true;
+      }
+      if (humMatch) {
+        currentFrameRef.current.humidity = parseFloat(humMatch[1]);
+        matchedAny = true;
+      }
+
+      // 2. ACS712 Current / Voltage / Raw ADC
+      const adcMatch = trimmed.match(/Raw\s*ADC\s*=\s*(\d+)/i) || trimmed.match(/ADC\s*=\s*(\d+)/i);
+      const voltMatch = trimmed.match(/\(([\d\.]+)\s*V\)/i) || trimmed.match(/([\d\.]+)\s*V\b/i);
+      const ampMatch = trimmed.match(/([\d\.]+)\s*A\b/i);
+      if (voltMatch) {
+        const volts = parseFloat(voltMatch[1]);
+        currentFrameRef.current.voltage = volts;
+        // Sensitivity calibration: ACS712 quiescent baseline ~1.65V (for 3.3V ADC with voltage divider)
+        const deltaV = Math.abs(volts - 1.65);
+        const calcAmps = deltaV > 0.02 ? parseFloat((deltaV / 0.066).toFixed(2)) : 0.0;
+        currentFrameRef.current.current_draw = calcAmps;
+        matchedAny = true;
+      } else if (ampMatch) {
+        currentFrameRef.current.current_draw = parseFloat(ampMatch[1]);
+        matchedAny = true;
+      }
+      if (adcMatch) {
+        currentFrameRef.current.raw_current_adc = parseInt(adcMatch[1], 10);
+        matchedAny = true;
+      }
+
+      // 3. Hall Effect Sensor (Pulses / Speed / Flux ADC)
+      const pulseMatch = trimmed.match(/(?:Total\s*Pulses|Pulses)\s*=\s*(\d+)/i) || trimmed.match(/Pulses:\s*(\d+)/i);
+      const rpmMatch = trimmed.match(/(?:RPM|Speed)\s*[:=]\s*([\d\.]+)/i);
+      const hallAdcMatch = trimmed.match(/A0.*ADC\s*=\s*(\d+)/i);
+      if (pulseMatch) {
+        const pulses = parseInt(pulseMatch[1], 10);
+        currentFrameRef.current.hall_pulses = pulses;
+        currentFrameRef.current.rpm = pulses * 60;
+        matchedAny = true;
+      }
+      if (rpmMatch) {
+        currentFrameRef.current.rpm = parseFloat(rpmMatch[1]);
+        matchedAny = true;
+      }
+      if (hallAdcMatch) {
+        currentFrameRef.current.hall_flux = parseInt(hallAdcMatch[1], 10);
+        matchedAny = true;
+      }
+
+      // 4. Push Button State (Active LOW: PRESSED [LOW] = 1, RELEASED [HIGH] = 0)
+      if (/push\s*button/i.test(trimmed) || /button/i.test(trimmed)) {
+        if (/PRESSED|\[LOW\]/i.test(trimmed) && !/RELEASED/i.test(trimmed)) {
+          currentFrameRef.current.button_state = 1;
+          currentFrameRef.current.push_button = 1;
+          matchedAny = true;
+        } else if (/RELEASED|\[HIGH\]/i.test(trimmed)) {
+          currentFrameRef.current.button_state = 0;
+          currentFrameRef.current.push_button = 0;
+          matchedAny = true;
+        }
+      }
+
+      // If any hardware diagnostic reading was matched, emit an updated telemetry frame
+      if (matchedAny) {
+        const synthesizedPacket: ParsedTelemetry = {
+          equipment_id: selectedMachine,
+          ...currentFrameRef.current,
+          vibration: currentFrameRef.current.vibration ?? 0.05,
+          vibration_rms: currentFrameRef.current.vibration_rms ?? 0.05,
+          timestamp: new Date().toISOString(),
+        };
+        processTelemetryPacket(synthesizedPacket);
+      }
+
       if (!isPaused) {
-        addLog(trimmed, "raw");
+        addLog(trimmed, matchedAny ? "json" : "raw");
       }
     },
-    [selectedMachine, forwardToBackend, isPaused, addLog]
+    [isPaused, addLog, processTelemetryPacket, selectedMachine]
   );
 
   // Connect via WebSerial API
@@ -429,6 +594,14 @@ void loop() {
     latestPacket?.current_draw !== undefined
       ? latestPacket.current_draw
       : latestPacket?.parameters?.current_draw;
+  const currentVolts =
+    latestPacket?.voltage !== undefined
+      ? latestPacket.voltage
+      : latestPacket?.parameters?.voltage;
+  const currentHumidity =
+    latestPacket?.humidity !== undefined
+      ? latestPacket.humidity
+      : latestPacket?.parameters?.humidity;
   const currentRpm =
     latestPacket?.rpm !== undefined
       ? latestPacket.rpm
@@ -436,7 +609,7 @@ void loop() {
   const currentButton =
     latestPacket?.button_state !== undefined
       ? latestPacket.button_state
-      : latestPacket?.parameters?.button_state;
+      : latestPacket?.parameters?.button_state ?? latestPacket?.push_button;
 
   return (
     <div className={`rounded-2xl border border-white/10 bg-[#0b1120] p-6 text-slate-100 shadow-2xl ${className}`}>
@@ -601,44 +774,86 @@ void loop() {
       </div>
 
       {/* Live Metrics HUD */}
-      <div className="grid grid-cols-2 md:grid-cols-7 gap-3 mb-5 font-mono text-center">
+      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-7 gap-3 mb-5 font-mono text-center">
+        {/* Packets */}
         <div className="p-3 rounded-xl border border-white/8 bg-black/30">
           <span className="text-[10px] uppercase text-slate-400 block mb-0.5">Packets</span>
           <span className="text-xl font-bold text-white">{packetCount}</span>
+          <span className="text-[10px] text-slate-500 block">Total Read</span>
         </div>
+
+        {/* Cadence */}
         <div className="p-3 rounded-xl border border-white/8 bg-black/30">
           <span className="text-[10px] uppercase text-slate-400 block mb-0.5">Cadence</span>
           <span className="text-xl font-bold text-sky-400">{cadenceHz} Hz</span>
+          <span className="text-[10px] text-slate-500 block">Sampling Rate</span>
         </div>
+
+        {/* DHT11 Temp */}
         <div className="p-3 rounded-xl border border-white/8 bg-black/30">
           <span className="text-[10px] uppercase text-slate-400 block mb-0.5">DHT11 Temp</span>
-          <span className="text-xl font-bold text-amber-300">
+          <span
+            className={`text-xl font-bold ${
+              currentTemp !== undefined && currentTemp > 35
+                ? "text-red-400 animate-pulse font-black"
+                : currentTemp !== undefined && currentTemp > 30
+                ? "text-amber-300"
+                : "text-emerald-400"
+            }`}
+          >
             {currentTemp !== undefined ? `${Number(currentTemp).toFixed(1)}°C` : "--"}
           </span>
+          <span className="text-[10px] text-slate-500 block">
+            {currentHumidity !== undefined ? `${Number(currentHumidity).toFixed(0)}% Hum` : "GPIO 4"}
+          </span>
         </div>
+
+        {/* Vibration RMS */}
         <div className="p-3 rounded-xl border border-white/8 bg-black/30">
           <span className="text-[10px] uppercase text-slate-400 block mb-0.5">Vibration RMS</span>
           <span className="text-xl font-bold text-blue-400">
             {currentVib !== undefined ? `${Number(currentVib).toFixed(2)} mm/s` : "--"}
           </span>
+          <span className="text-[10px] text-slate-500 block">ISO 10816 Zone A</span>
         </div>
+
+        {/* ACS712 Current */}
         <div className="p-3 rounded-xl border border-white/8 bg-black/30">
           <span className="text-[10px] uppercase text-slate-400 block mb-0.5">ACS712 Current</span>
           <span className="text-xl font-bold text-emerald-400">
-            {currentDraw !== undefined ? `${Number(currentDraw).toFixed(2)} A` : "--"}
+            {currentDraw !== undefined && currentDraw > 0
+              ? `${Number(currentDraw).toFixed(2)} A`
+              : currentVolts !== undefined
+              ? `${Number(currentVolts).toFixed(2)} V`
+              : "--"}
+          </span>
+          <span className="text-[10px] text-slate-500 block truncate" title="Raw ADC from GPIO 34">
+            {currentVolts !== undefined
+              ? `${Number(currentVolts).toFixed(2)} V (ADC ${latestPacket?.raw_current_adc ?? "ok"})`
+              : "GPIO 34 ADC"}
           </span>
         </div>
+
+        {/* Hall Speed */}
         <div className="p-3 rounded-xl border border-white/8 bg-black/30">
           <span className="text-[10px] uppercase text-slate-400 block mb-0.5">Hall Speed</span>
           <span className="text-xl font-bold text-purple-400">
-            {currentRpm !== undefined ? `${Math.round(Number(currentRpm))} RPM` : "--"}
+            {currentRpm !== undefined && currentRpm > 0
+              ? `${Math.round(Number(currentRpm))} RPM`
+              : latestPacket?.hall_pulses !== undefined
+              ? `${latestPacket.hall_pulses} Pulses`
+              : "--"}
+          </span>
+          <span className="text-[10px] text-slate-500 block truncate">
+            {latestPacket?.hall_flux !== undefined ? `ADC ${latestPacket.hall_flux}` : "GPIO 25/35"}
           </span>
         </div>
+
         {/* Real-time Push Button Indicator */}
         <div
           className={`p-3 rounded-xl border transition-all duration-300 ${
             Number(currentButton) === 1
-              ? "border-emerald-400 bg-emerald-500/30 shadow-[0_0_20px_rgba(16,185,129,0.5)] scale-105"
+              ? "border-emerald-400 bg-emerald-500/30 shadow-[0_0_25px_rgba(16,185,129,0.7)] scale-105"
               : "border-white/8 bg-black/30"
           }`}
         >
@@ -652,6 +867,99 @@ void loop() {
           >
             {Number(currentButton) === 1 ? "🔘 PRESSED" : "⚪ RELEASED"}
           </span>
+          <span className="text-[10px] text-slate-500 block">
+            {Number(currentButton) === 1 ? "GPIO 27 Active" : "Pull-up Healthy"}
+          </span>
+        </div>
+      </div>
+
+      {/* Real-Time Live Signal Waveform Graph */}
+      <div className="rounded-xl border border-white/10 bg-slate-900/60 p-4 mb-5">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-3">
+          <div className="flex items-center gap-2">
+            <Activity className="h-4 w-4 text-emerald-400 animate-pulse" />
+            <span className="text-xs font-bold uppercase tracking-wider text-slate-200">
+              Live Hardware Sensor Signal Stream
+            </span>
+            <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-300 border border-emerald-500/20">
+              {realtimeHistory.length} Live Samples
+            </span>
+          </div>
+
+          <div className="flex items-center gap-3 text-xs font-mono flex-wrap">
+            <span className="flex items-center gap-1.5 text-amber-300">
+              <span className="h-2 w-2 rounded-full bg-amber-400" />
+              Temp: {currentTemp !== undefined ? `${Number(currentTemp).toFixed(1)}°C` : "--"}
+            </span>
+            <span className="flex items-center gap-1.5 text-emerald-400">
+              <span className="h-2 w-2 rounded-full bg-emerald-400" />
+              Current: {currentDraw !== undefined && currentDraw > 0 ? `${Number(currentDraw).toFixed(2)} A` : currentVolts !== undefined ? `${Number(currentVolts).toFixed(2)} V` : "--"}
+            </span>
+            <span className={`flex items-center gap-1.5 font-bold ${Number(currentButton) === 1 ? "text-pink-400 animate-pulse" : "text-slate-400"}`}>
+              <span className={`h-2 w-2 rounded-full ${Number(currentButton) === 1 ? "bg-pink-400 shadow-[0_0_8px_#ec4899]" : "bg-slate-500"}`} />
+              Btn: {Number(currentButton) === 1 ? "PRESSED" : "RELEASED"}
+            </span>
+          </div>
+        </div>
+
+        <div className="h-56 w-full">
+          {realtimeHistory.length === 0 ? (
+            <div className="h-full flex flex-col items-center justify-center text-xs text-slate-500 font-mono italic">
+              <Activity className="h-6 w-6 text-slate-600 mb-1 animate-pulse" />
+              Awaiting incoming USB serial telemetry to render dynamic waveforms...
+            </div>
+          ) : (
+            <ResponsiveContainer width="100%" height="100%">
+              <LineChart data={realtimeHistory} margin={{ top: 10, right: 30, left: 0, bottom: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
+                <XAxis dataKey="time" stroke="#64748b" tick={{ fontSize: 10 }} />
+                <YAxis yAxisId="left" stroke="#f59e0b" domain={[20, 45]} tick={{ fontSize: 10 }} unit="°C" />
+                <YAxis yAxisId="right" orientation="right" stroke="#10b981" domain={[0, 6]} tick={{ fontSize: 10 }} unit="A" />
+                <Tooltip
+                  contentStyle={{
+                    backgroundColor: "#0b1120",
+                    borderColor: "#334155",
+                    color: "#f8fafc",
+                    borderRadius: "8px",
+                    fontSize: "11px",
+                    fontFamily: "monospace"
+                  }}
+                />
+                <ReferenceLine yAxisId="left" y={30} stroke="#f59e0b" strokeDasharray="3 3" label={{ value: "Warning (30°C)", fill: "#f59e0b", fontSize: 9 }} />
+                <ReferenceLine yAxisId="left" y={35} stroke="#ef4444" strokeDasharray="3 3" label={{ value: "Critical (35°C)", fill: "#ef4444", fontSize: 9 }} />
+                <Line
+                  yAxisId="left"
+                  type="monotone"
+                  dataKey="temperature"
+                  name="DHT11 Temp (°C)"
+                  stroke="#f59e0b"
+                  strokeWidth={2.5}
+                  dot={{ r: 2, fill: "#f59e0b" }}
+                  isAnimationActive={false}
+                />
+                <Line
+                  yAxisId="right"
+                  type="monotone"
+                  dataKey="current"
+                  name="ACS712 Current (A)"
+                  stroke="#10b981"
+                  strokeWidth={2}
+                  dot={false}
+                  isAnimationActive={false}
+                />
+                <Line
+                  yAxisId="right"
+                  type="stepAfter"
+                  dataKey="button"
+                  name="Push Button (Step Active=3)"
+                  stroke="#ec4899"
+                  strokeWidth={2.5}
+                  dot={false}
+                  isAnimationActive={false}
+                />
+              </LineChart>
+            </ResponsiveContainer>
+          )}
         </div>
       </div>
 

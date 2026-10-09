@@ -48,6 +48,8 @@ void setup() {
   // Initialize DHT
   pinMode(DHT_PIN, INPUT_PULLUP);
   dht.begin();
+  Serial.println("[Init] Allowing 2.0s for DHT11 sensor internal stabilization...");
+  delay(2000);
 
   Serial.println("\nStarting continuous sensor diagnostic loop...\n");
 }
@@ -55,12 +57,34 @@ void setup() {
 void loop() {
   Serial.println("------------- [HARDWARE DIAGNOSTIC REPORT] -------------");
 
-  // 1. Check DHT11
+  // 1. Check DHT11 (with instant retry to filter single-wire jitter)
   float temp = dht.readTemperature();
   float hum = dht.readHumidity();
   if (isnan(temp) || isnan(hum)) {
+    delay(200);
+    temp = dht.readTemperature();
+    hum = dht.readHumidity();
+  }
+  if (isnan(temp) || isnan(hum)) {
+    int pinVoltAdc = analogRead(DHT_PIN);
+    int pinDigital = digitalRead(DHT_PIN);
     Serial.println("  ❌ DHT11 (GPIO 4): NOT DETECTED / READ ERROR");
-    Serial.println("     -> Check: VCC to 3.3V, GND to GND, DATA to GPIO 4");
+    Serial.print("     -> Pin Electrical State: Digital = ");
+    Serial.print(pinDigital == HIGH ? "HIGH (3.3V)" : "LOW (0V / Ground)");
+    Serial.print(" | ADC = ");
+    Serial.println(pinVoltAdc);
+
+    if (pinDigital == LOW) {
+      Serial.println("     ⚠️ ROOT CAUSE: Line is stuck LOW (0V / GND).");
+      Serial.println("        • Check module pinout: Many 3-pin modules are [S, +, -] NOT [+, out, -]!");
+      Serial.println("        • If DATA is accidentally connected to GND, the line is shorted.");
+      Serial.println("        • Check if VCC is disconnected (unpowered sensor pulls line LOW).");
+    } else {
+      Serial.println("     ⚠️ ROOT CAUSE: Line is HIGH (pull-up active), but sensor does not respond.");
+      Serial.println("        • Power DHT11 from VIN (5V) instead of 3.3V (most clone DHT11 require >3.5V to operate!).");
+      Serial.println("        • Verify wire is firmly in GPIO 4 (marked 'D4' or 'G4' on ESP32 board).");
+      Serial.println("        • If 4-pin bare sensor: Add a 4.7k-10k resistor between VCC and DATA.");
+    }
   } else {
     Serial.print("  ✅ DHT11 (GPIO 4): CONNECTED & WORKING | Temp: ");
     Serial.print(temp, 1);
