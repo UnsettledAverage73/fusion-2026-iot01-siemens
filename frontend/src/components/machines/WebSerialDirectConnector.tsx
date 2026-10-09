@@ -332,11 +332,9 @@ void loop() {
             disabled={isConnected}
             className="w-full bg-black/60 border border-white/10 rounded-lg px-3 py-2 text-xs font-mono text-white focus:outline-none focus:border-sky-500 disabled:opacity-50"
           >
-            <option value="SGT-TERM-01">SGT-TERM-01 (Dataset 1: Terminal Breaker)</option>
-            <option value="XFMR-315MVA-01">XFMR-315MVA-01 (Dataset 2: Sensformer)</option>
-            <option value="CNC-MILL-01">CNC-MILL-01 (Haas VF-2 CNC)</option>
-            <option value="ROBOT-ARM-01">ROBOT-ARM-01 (KUKA KR-16)</option>
-            <option value="PUMP-01">PUMP-01 (Centrifugal Slurry Pump)</option>
+            <option value="ESP32-HARDWARE-01">ESP32-HARDWARE-01 (Machine 3: Hardware Connected Model)</option>
+            <option value="SGT-TERM-01">SGT-TERM-01 (Machine 1: Dataset 1 Terminal Model)</option>
+            <option value="XFMR-315MVA-01">XFMR-315MVA-01 (Machine 2: Dataset 2 Transformer Model)</option>
           </select>
         </div>
 

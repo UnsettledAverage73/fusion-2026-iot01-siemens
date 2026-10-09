@@ -292,7 +292,7 @@ export default function MachineDetailPage({ params }: { params: Promise<{ id: st
       )}
 
       {/* Industrial SCADA Connected Model Inspector (Streamlit-Equivalent Graphs) */}
-      {(idStr === "SGT-TERM-01" || idStr === "XFMR-315MVA-01") && (
+      {(idStr === "SGT-TERM-01" || idStr === "XFMR-315MVA-01" || idStr === "ESP32-HARDWARE-01") && (
         <div className="animate-in fade-in duration-300">
           <ConnectedModelInspector machineId={idStr} />
         </div>

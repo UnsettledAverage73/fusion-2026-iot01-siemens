@@ -35,11 +35,11 @@ String configPassword   = "12345678";
 String configServerHost = "predmaint-api.onrender.com";
 int    configServerPort = 443;
 bool   configUseHttps   = true;
-String configEquipmentId= "CNC001";
+String configEquipmentId= "SGT-TERM-01";
 String configSensorKind = "multi";
 
 const char* INGEST_PATH = "/api/iot/ingest";
-const unsigned long TELEMETRY_INTERVAL_MS = 2000;
+const unsigned long TELEMETRY_INTERVAL_MS = 1000; // 1-second live telemetry cadence
 
 // Config Portal AP Web Server (Port 80)
 WebServer configServer(80);
@@ -469,9 +469,8 @@ void setup() {
     Serial.println(deviceMacAddress);
     triggerBuzzerPattern(2, 80);
   } else {
-    Serial.println("\n[WiFi] AP not immediately reachable. Launching Captive Config Portal fallback...");
-    startConfigPortal();
-    return;
+    Serial.println("\n[WiFi] WiFi not connected. Continuing in DIRECT USB SERIAL STREAMING mode (115200 baud)...");
+    deviceMacAddress = WiFi.macAddress();
   }
 
   lastTelemetryTime = millis();
@@ -548,8 +547,7 @@ void loop() {
     // Build Payload
     String jsonPayload = buildTelemetryJson(temperature, humidity, currentAmps, measuredRpm, hallAnalog, buttonState, buzzerState);
 
-    // Always emit over Serial for USB debugging & Serial Bridge
-    Serial.print("[JSON_TELEMETRY] ");
+    // Always emit clean JSON over Serial for WebSerial USB connection & monitor
     Serial.println(jsonPayload);
 
     // Stream over Wi-Fi

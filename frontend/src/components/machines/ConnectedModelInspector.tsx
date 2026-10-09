@@ -18,7 +18,8 @@ interface ConnectedModelInspectorProps {
 }
 
 export function ConnectedModelInspector({ machineId, onClose, isModal = false }: ConnectedModelInspectorProps) {
-  const isTerminal = machineId === "SGT-TERM-01";
+  const isHardware = machineId === "ESP32-HARDWARE-01";
+  const isTerminal = machineId === "SGT-TERM-01" || isHardware;
   const [, startTransition] = useTransition();
 
   // Preset Scenarios
@@ -258,12 +259,26 @@ export function ConnectedModelInspector({ machineId, onClose, isModal = false }:
               Machine AI Diagnostic Inspector
             </span>
             <span className="text-xs font-mono text-slate-400">
-              {isTerminal ? "Kaggle Dataset 1 • SGT-TERM-01" : "Kaggle Dataset 2 • XFMR-315MVA-01"}
+              {isHardware
+                ? "Physical Hardware Live • ESP32-HARDWARE-01"
+                : isTerminal
+                ? "Kaggle Dataset 1 • SGT-TERM-01"
+                : "Kaggle Dataset 2 • XFMR-315MVA-01"}
             </span>
           </div>
           <h2 className="text-2xl font-bold tracking-tight text-white flex items-center gap-2.5">
-            {isTerminal ? <Zap className="h-6 w-6 text-sky-400" /> : <Flame className="h-6 w-6 text-amber-400" />}
-            {isTerminal ? "Smart Grid Terminal & Breaker Model Diagnostics" : "Power Transformer DGA & Health Index Diagnostics"}
+            {isHardware ? (
+              <Zap className="h-6 w-6 text-emerald-400" />
+            ) : isTerminal ? (
+              <Zap className="h-6 w-6 text-sky-400" />
+            ) : (
+              <Flame className="h-6 w-6 text-amber-400" />
+            )}
+            {isHardware
+              ? "Dataset 3: Physical Hardware Live Telemetry & Model Diagnostics"
+              : isTerminal
+              ? "Dataset 1: Terminal & Breaker Model Diagnostics"
+              : "Dataset 2: Power Transformer DGA & Health Index Diagnostics"}
           </h2>
           <p className="mt-1 text-sm text-slate-400">
             Real-time visual diagnostic inspection modeled after the Streamlit industrial SCADA dashboard, running zero-dependency pre-trained <code className="text-sky-300 font-mono">.model</code> tree ensembles.

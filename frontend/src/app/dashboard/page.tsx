@@ -145,9 +145,9 @@ export default function DashboardPage() {
   const machine1Data = useMemo(() => {
     return machines.find((m) => m.id === "SGT-TERM-01") || {
       id: "SGT-TERM-01",
-      name: "Smart Grid Terminal & Breaker CB-01",
+      name: "Dataset 1: Terminal Fault Model (CB-01)",
       status: "online" as const,
-      healthScore: 99.8,
+      healthScore: 100,
       temperature: 42.5,
       vibration: 1.82,
     };
@@ -156,11 +156,22 @@ export default function DashboardPage() {
   const machine2Data = useMemo(() => {
     return machines.find((m) => m.id === "XFMR-315MVA-01") || {
       id: "XFMR-315MVA-01",
-      name: "Power Transformer T1 (Sensformer 315 MVA)",
+      name: "Dataset 2: Transformer DGA Model (315 MVA)",
       status: "online" as const,
-      healthScore: 88.5,
+      healthScore: 100,
       temperature: 58.2,
       vibration: 0.48,
+    };
+  }, [machines]);
+
+  const machine3Data = useMemo(() => {
+    return machines.find((m) => m.id === "ESP32-HARDWARE-01") || {
+      id: "ESP32-HARDWARE-01",
+      name: "Dataset 3: Hardware Connected Model (ESP32 Live)",
+      status: "online" as const,
+      healthScore: 100,
+      temperature: 33.2,
+      vibration: 0.04,
     };
   }, [machines]);
 
@@ -386,7 +397,7 @@ export default function DashboardPage() {
           </div>
         </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
           {/* MACHINE 1: DATASET 1 - SMART GRID TERMINAL & CIRCUIT BREAKER */}
           <div className="rounded-2xl border border-sky-500/25 bg-gradient-to-br from-sky-950/20 via-black/30 to-black/50 p-5 md:p-6 flex flex-col justify-between shadow-[0_4px_24px_rgba(56,189,248,0.06)] hover:border-sky-500/40 transition-all">
             <div>
@@ -400,16 +411,16 @@ export default function DashboardPage() {
                       ID: SGT-TERM-01
                     </span>
                   </div>
-                  <h3 className="text-lg md:text-xl font-bold text-white flex items-center gap-2">
-                    <Zap className="h-5 w-5 text-sky-400" />
-                    Smart Grid Terminal & Breaker CB-01
+                  <h3 className="text-base md:text-lg font-bold text-white flex items-center gap-2">
+                    <Zap className="h-5 w-5 text-sky-400 shrink-0" />
+                    Dataset 1: Terminal Fault Model
                   </h3>
                   <p className="text-xs text-slate-400 mt-1">
-                    400kV / 220kV High-Voltage Incomer Bay Alpha
+                    400kV Incomer Bay Alpha (CB-01)
                   </p>
                 </div>
                 <div className="text-right flex flex-col items-end">
-                  <span className="rounded-full border border-emerald-500/30 bg-emerald-500/10 px-3 py-1 text-[11px] font-semibold text-emerald-400 flex items-center gap-1.5">
+                  <span className="rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-0.5 text-[10px] font-semibold text-emerald-400 flex items-center gap-1.5">
                     <span className="h-1.5 w-1.5 rounded-full bg-emerald-400"></span>
                     {machine1Data.status.toUpperCase()}
                   </span>
@@ -418,70 +429,70 @@ export default function DashboardPage() {
               </div>
 
               {/* Connected Model Badge */}
-              <div className="rounded-xl border border-white/10 bg-black/40 p-3.5 mb-4">
-                <div className="flex items-center justify-between mb-1.5">
-                  <span className="text-[11px] font-bold uppercase tracking-wider text-slate-300 flex items-center gap-1.5">
+              <div className="rounded-xl border border-white/10 bg-black/40 p-3 mb-4">
+                <div className="flex items-center justify-between mb-1">
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-slate-300 flex items-center gap-1.5">
                     <Cpu className="h-3.5 w-3.5 text-sky-400" />
                     Connected Model:
                   </span>
-                  <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-sky-500/20 text-sky-300 font-semibold border border-sky-500/30">
-                    Pre-Trained Tree Ensemble (.model)
+                  <span className="text-[9px] font-mono px-2 py-0.5 rounded bg-sky-500/20 text-sky-300 font-semibold border border-sky-500/30">
+                    Tree Ensemble (.model)
                   </span>
                 </div>
-                <div className="grid grid-cols-2 gap-2 text-[11px] font-mono text-slate-300 mt-2 pt-2 border-t border-white/5">
+                <div className="grid grid-cols-2 gap-2 text-[10px] font-mono text-slate-300 mt-2 pt-2 border-t border-white/5">
                   <div>
                     <span className="text-slate-500 block text-[9px] uppercase">Trained On</span>
-                    <span>Kaggle Dataset 1 (zara2099)</span>
+                    <span className="truncate block">Kaggle Dataset 1</span>
                   </div>
                   <div>
-                    <span className="text-slate-500 block text-[9px] uppercase">Test Accuracy</span>
-                    <span className="text-emerald-400 font-bold">100.00% (200/200 test)</span>
+                    <span className="text-slate-500 block text-[9px] uppercase">Accuracy</span>
+                    <span className="text-emerald-400 font-bold">100% (200/200)</span>
                   </div>
                   <div>
-                    <span className="text-slate-500 block text-[9px] uppercase">Governing Standard</span>
+                    <span className="text-slate-500 block text-[9px] uppercase">Standard</span>
                     <span>IEC 60038 / ISO 10816</span>
                   </div>
                   <div>
-                    <span className="text-slate-500 block text-[9px] uppercase">Production Engine</span>
-                    <span className="text-emerald-400">Zero-Dependency (No Retrain)</span>
+                    <span className="text-slate-500 block text-[9px] uppercase">Engine</span>
+                    <span className="text-emerald-400">Zero-Dependency</span>
                   </div>
                 </div>
               </div>
 
               {/* Live Telemetry Sensor Gauges */}
-              <div className="grid grid-cols-3 gap-2 text-center mb-4">
-                <div className="rounded-xl border border-white/8 bg-black/20 p-2.5">
-                  <span className="block text-[10px] uppercase tracking-wider text-slate-400">Voltage</span>
-                  <span className="text-base font-bold font-mono text-white mt-0.5 block">230.4 V</span>
-                  <span className="text-[9px] text-emerald-400">IEC Nominal</span>
+              <div className="grid grid-cols-3 gap-1.5 text-center mb-4">
+                <div className="rounded-xl border border-white/8 bg-black/20 p-2">
+                  <span className="block text-[9px] uppercase tracking-wider text-slate-400">Voltage</span>
+                  <span className="text-sm font-bold font-mono text-white mt-0.5 block">230.4 V</span>
+                  <span className="text-[8px] text-emerald-400">IEC Nominal</span>
                 </div>
-                <div className="rounded-xl border border-white/8 bg-black/20 p-2.5">
-                  <span className="block text-[10px] uppercase tracking-wider text-slate-400">Current</span>
-                  <span className="text-base font-bold font-mono text-white mt-0.5 block">5.15 A</span>
-                  <span className="text-[9px] text-emerald-400">Rated Range</span>
+                <div className="rounded-xl border border-white/8 bg-black/20 p-2">
+                  <span className="block text-[9px] uppercase tracking-wider text-slate-400">Current</span>
+                  <span className="text-sm font-bold font-mono text-white mt-0.5 block">5.15 A</span>
+                  <span className="text-[8px] text-emerald-400">Rated</span>
                 </div>
-                <div className="rounded-xl border border-white/8 bg-black/20 p-2.5">
-                  <span className="block text-[10px] uppercase tracking-wider text-slate-400">Vibration</span>
-                  <span className="text-base font-bold font-mono text-white mt-0.5 block">{machine1Data.vibration ?? 1.82} mm/s</span>
-                  <span className="text-[9px] text-emerald-400">ISO Zone A</span>
+                <div className="rounded-xl border border-white/8 bg-black/20 p-2">
+                  <span className="block text-[9px] uppercase tracking-wider text-slate-400">Vibration</span>
+                  <span className="text-sm font-bold font-mono text-white mt-0.5 block">{machine1Data.vibration ?? 1.82} mm/s</span>
+                  <span className="text-[8px] text-emerald-400">Zone A</span>
                 </div>
               </div>
             </div>
 
             <div className="pt-3 border-t border-white/8 flex items-center justify-between gap-2">
-              <span className="text-xs text-slate-400 font-mono truncate">
-                Model: <code className="text-sky-300">terminal_fault_model.model</code>
+              <span className="text-[11px] text-slate-400 font-mono truncate">
+                <code className="text-sky-300">terminal_fault_model.model</code>
               </span>
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-1.5">
                 <button
                   onClick={() => setInspectedMachineId("SGT-TERM-01")}
-                  className="text-xs font-semibold bg-sky-500/20 text-sky-300 border border-sky-500/30 px-3 py-1.5 rounded-lg hover:bg-sky-500/30 transition-all flex items-center gap-1.5"
+                  className="text-xs font-semibold bg-sky-500/20 text-sky-300 border border-sky-500/30 px-2.5 py-1.5 rounded-lg hover:bg-sky-500/30 transition-all flex items-center gap-1"
                 >
-                  <BarChart3 className="w-3.5 h-3.5" /> Inspect Model
+                  <BarChart3 className="w-3.5 h-3.5" /> Inspect
                 </button>
                 <Link
                   href="/dashboard/machines/SGT-TERM-01"
-                  className="text-xs font-semibold bg-white text-black px-3.5 py-1.5 rounded-lg hover:bg-neutral-200 transition-all flex items-center gap-1.5 shadow-[0_2px_8px_rgba(255,255,255,0.15)]"
+                  className="text-xs font-semibold bg-white text-black px-2.5 py-1.5 rounded-lg hover:bg-neutral-200 transition-all flex items-center gap-1 shadow-[0_2px_8px_rgba(255,255,255,0.15)]"
                 >
                   Machine <ArrowRight className="w-3 h-3" />
                 </Link>
@@ -502,88 +513,190 @@ export default function DashboardPage() {
                       ID: XFMR-315MVA-01
                     </span>
                   </div>
-                  <h3 className="text-lg md:text-xl font-bold text-white flex items-center gap-2">
-                    <Gauge className="h-5 w-5 text-amber-400" />
-                    Power Transformer T1 (Sensformer 315 MVA)
+                  <h3 className="text-base md:text-lg font-bold text-white flex items-center gap-2">
+                    <Gauge className="h-5 w-5 text-amber-400 shrink-0" />
+                    Dataset 2: Transformer DGA Model
                   </h3>
                   <p className="text-xs text-slate-400 mt-1">
-                    Step-Down Transformation Bay (400kV / 220kV)
+                    Step-Down Bay (Sensformer 315 MVA)
                   </p>
                 </div>
                 <div className="text-right flex flex-col items-end">
-                  <span className="rounded-full border border-emerald-500/30 bg-emerald-500/10 px-3 py-1 text-[11px] font-semibold text-emerald-400 flex items-center gap-1.5">
+                  <span className="rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-0.5 text-[10px] font-semibold text-emerald-400 flex items-center gap-1.5">
                     <span className="h-1.5 w-1.5 rounded-full bg-emerald-400"></span>
                     {machine2Data.status.toUpperCase()}
                   </span>
-                  <span className="text-[10px] font-mono text-slate-400 mt-1">Health Index: {machine2Data.healthScore}%</span>
+                  <span className="text-[10px] font-mono text-slate-400 mt-1">Health: {machine2Data.healthScore}%</span>
                 </div>
               </div>
 
               {/* Connected Model Badge */}
-              <div className="rounded-xl border border-white/10 bg-black/40 p-3.5 mb-4">
-                <div className="flex items-center justify-between mb-1.5">
-                  <span className="text-[11px] font-bold uppercase tracking-wider text-slate-300 flex items-center gap-1.5">
+              <div className="rounded-xl border border-white/10 bg-black/40 p-3 mb-4">
+                <div className="flex items-center justify-between mb-1">
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-slate-300 flex items-center gap-1.5">
                     <Cpu className="h-3.5 w-3.5 text-amber-400" />
                     Connected Model:
                   </span>
-                  <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-amber-500/20 text-amber-300 font-semibold border border-amber-500/30">
-                    Pre-Trained Tree Ensemble (.model)
+                  <span className="text-[9px] font-mono px-2 py-0.5 rounded bg-amber-500/20 text-amber-300 font-semibold border border-amber-500/30">
+                    Tree Ensemble (.model)
                   </span>
                 </div>
-                <div className="grid grid-cols-2 gap-2 text-[11px] font-mono text-slate-300 mt-2 pt-2 border-t border-white/5">
+                <div className="grid grid-cols-2 gap-2 text-[10px] font-mono text-slate-300 mt-2 pt-2 border-t border-white/5">
                   <div>
                     <span className="text-slate-500 block text-[9px] uppercase">Trained On</span>
-                    <span>Kaggle Dataset 2 (shashwatwork)</span>
+                    <span className="truncate block">Kaggle Dataset 2</span>
                   </div>
                   <div>
-                    <span className="text-slate-500 block text-[9px] uppercase">Multi-Class Accuracy</span>
-                    <span className="text-emerald-400 font-bold">100.00% (94/94 test)</span>
+                    <span className="text-slate-500 block text-[9px] uppercase">Accuracy</span>
+                    <span className="text-emerald-400 font-bold">100% (94/94)</span>
                   </div>
                   <div>
-                    <span className="text-slate-500 block text-[9px] uppercase">Governing Standard</span>
-                    <span>IEEE C57.104 / Duval Triangle</span>
+                    <span className="text-slate-500 block text-[9px] uppercase">Standard</span>
+                    <span>IEEE C57.104 / Duval</span>
                   </div>
                   <div>
-                    <span className="text-slate-500 block text-[9px] uppercase">Production Engine</span>
-                    <span className="text-emerald-400">Zero-Dependency (No Retrain)</span>
+                    <span className="text-slate-500 block text-[9px] uppercase">Engine</span>
+                    <span className="text-emerald-400">Zero-Dependency</span>
                   </div>
                 </div>
               </div>
 
               {/* Live Chemical DGA Gauges */}
-              <div className="grid grid-cols-3 gap-2 text-center mb-4">
-                <div className="rounded-xl border border-white/8 bg-black/20 p-2.5">
-                  <span className="block text-[10px] uppercase tracking-wider text-slate-400">Oil Temp</span>
-                  <span className="text-base font-bold font-mono text-white mt-0.5 block">{machine2Data.temperature ?? 58.2} °C</span>
-                  <span className="text-[9px] text-emerald-400">Optimal Range</span>
+              <div className="grid grid-cols-3 gap-1.5 text-center mb-4">
+                <div className="rounded-xl border border-white/8 bg-black/20 p-2">
+                  <span className="block text-[9px] uppercase tracking-wider text-slate-400">Oil Temp</span>
+                  <span className="text-sm font-bold font-mono text-white mt-0.5 block">{machine2Data.temperature ?? 58.2} °C</span>
+                  <span className="text-[8px] text-emerald-400">Optimal</span>
                 </div>
-                <div className="rounded-xl border border-white/8 bg-black/20 p-2.5">
-                  <span className="block text-[10px] uppercase tracking-wider text-slate-400">Acetylene (C₂H₂)</span>
-                  <span className="text-base font-bold font-mono text-white mt-0.5 block">0.45 ppm</span>
-                  <span className="text-[9px] text-emerald-400">No Arcing (Normal)</span>
+                <div className="rounded-xl border border-white/8 bg-black/20 p-2">
+                  <span className="block text-[9px] uppercase tracking-wider text-slate-400">C₂H₂ Arcing</span>
+                  <span className="text-sm font-bold font-mono text-white mt-0.5 block">0.45 ppm</span>
+                  <span className="text-[8px] text-emerald-400">Normal</span>
                 </div>
-                <div className="rounded-xl border border-white/8 bg-black/20 p-2.5">
-                  <span className="block text-[10px] uppercase tracking-wider text-slate-400">BDV Rigidity</span>
-                  <span className="text-base font-bold font-mono text-white mt-0.5 block">68.5 kV</span>
-                  <span className="text-[9px] text-emerald-400">Dielectric Stable</span>
+                <div className="rounded-xl border border-white/8 bg-black/20 p-2">
+                  <span className="block text-[9px] uppercase tracking-wider text-slate-400">BDV Rigidity</span>
+                  <span className="text-sm font-bold font-mono text-white mt-0.5 block">68.5 kV</span>
+                  <span className="text-[8px] text-emerald-400">Stable</span>
                 </div>
               </div>
             </div>
 
             <div className="pt-3 border-t border-white/8 flex items-center justify-between gap-2">
-              <span className="text-xs text-slate-400 font-mono truncate">
-                Model: <code className="text-amber-300">transformer_health_model.model</code>
+              <span className="text-[11px] text-slate-400 font-mono truncate">
+                <code className="text-amber-300">transformer_health_model.model</code>
               </span>
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-1.5">
                 <button
                   onClick={() => setInspectedMachineId("XFMR-315MVA-01")}
-                  className="text-xs font-semibold bg-amber-500/20 text-amber-300 border border-amber-500/30 px-3 py-1.5 rounded-lg hover:bg-amber-500/30 transition-all flex items-center gap-1.5"
+                  className="text-xs font-semibold bg-amber-500/20 text-amber-300 border border-amber-500/30 px-2.5 py-1.5 rounded-lg hover:bg-amber-500/30 transition-all flex items-center gap-1"
                 >
-                  <BarChart3 className="w-3.5 h-3.5" /> Inspect Model
+                  <BarChart3 className="w-3.5 h-3.5" /> Inspect
                 </button>
                 <Link
                   href="/dashboard/machines/XFMR-315MVA-01"
-                  className="text-xs font-semibold bg-white text-black px-3.5 py-1.5 rounded-lg hover:bg-neutral-200 transition-all flex items-center gap-1.5 shadow-[0_2px_8px_rgba(255,255,255,0.15)]"
+                  className="text-xs font-semibold bg-white text-black px-2.5 py-1.5 rounded-lg hover:bg-neutral-200 transition-all flex items-center gap-1 shadow-[0_2px_8px_rgba(255,255,255,0.15)]"
+                >
+                  Machine <ArrowRight className="w-3 h-3" />
+                </Link>
+              </div>
+            </div>
+          </div>
+
+          {/* MACHINE 3: HARDWARE CONNECTED MODEL - ESP32 PHYSICAL SENSOR LIVE STREAM */}
+          <div className="rounded-2xl border border-emerald-500/25 bg-gradient-to-br from-emerald-950/20 via-black/30 to-black/50 p-5 md:p-6 flex flex-col justify-between shadow-[0_4px_24px_rgba(16,185,129,0.06)] hover:border-emerald-500/40 transition-all">
+            <div>
+              <div className="flex items-start justify-between gap-3 mb-4">
+                <div>
+                  <div className="flex items-center gap-2 mb-1.5">
+                    <span className="rounded-md border border-emerald-400/30 bg-emerald-400/10 px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-emerald-400 font-mono">
+                      Machine 03 • Hardware Live
+                    </span>
+                    <span className="text-[11px] font-mono text-slate-400">
+                      ID: ESP32-HARDWARE-01
+                    </span>
+                  </div>
+                  <h3 className="text-base md:text-lg font-bold text-white flex items-center gap-2">
+                    <Radio className="h-5 w-5 text-emerald-400 shrink-0" />
+                    Dataset 3: Hardware Connected Model
+                  </h3>
+                  <p className="text-xs text-slate-400 mt-1">
+                    Direct ESP32 USB / WiFi Multi-Sensor Stream
+                  </p>
+                </div>
+                <div className="text-right flex flex-col items-end">
+                  <span className="rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-0.5 text-[10px] font-semibold text-emerald-400 flex items-center gap-1.5">
+                    <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
+                    {machine3Data.status.toUpperCase()}
+                  </span>
+                  <span className="text-[10px] font-mono text-slate-400 mt-1">Health: {machine3Data.healthScore}%</span>
+                </div>
+              </div>
+
+              {/* Connected Model Badge */}
+              <div className="rounded-xl border border-white/10 bg-black/40 p-3 mb-4">
+                <div className="flex items-center justify-between mb-1">
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-slate-300 flex items-center gap-1.5">
+                    <Usb className="h-3.5 w-3.5 text-emerald-400" />
+                    Connected Hardware:
+                  </span>
+                  <span className="text-[9px] font-mono px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 font-semibold border border-emerald-500/30">
+                    ESP32-WROOM-32 (CP2102)
+                  </span>
+                </div>
+                <div className="grid grid-cols-2 gap-2 text-[10px] font-mono text-slate-300 mt-2 pt-2 border-t border-white/5">
+                  <div>
+                    <span className="text-slate-500 block text-[9px] uppercase">MAC Address</span>
+                    <span className="truncate block font-mono text-emerald-300">3C:71:BF:52:D7:C8</span>
+                  </div>
+                  <div>
+                    <span className="text-slate-500 block text-[9px] uppercase">Connection</span>
+                    <span className="text-emerald-400 font-bold">115200 Baud / WebSerial</span>
+                  </div>
+                  <div>
+                    <span className="text-slate-500 block text-[9px] uppercase">Sensors Active</span>
+                    <span>DHT11 + ACS712 + Hall</span>
+                  </div>
+                  <div>
+                    <span className="text-slate-500 block text-[9px] uppercase">Inference</span>
+                    <span className="text-emerald-400">Live Telemetry &rarr; Model</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Live Physical Hardware Gauges */}
+              <div className="grid grid-cols-3 gap-1.5 text-center mb-4">
+                <div className="rounded-xl border border-white/8 bg-black/20 p-2">
+                  <span className="block text-[9px] uppercase tracking-wider text-slate-400">Temperature</span>
+                  <span className="text-sm font-bold font-mono text-white mt-0.5 block">{machine3Data.temperature ?? 33.2} °C</span>
+                  <span className="text-[8px] text-emerald-400">DHT11 Live</span>
+                </div>
+                <div className="rounded-xl border border-white/8 bg-black/20 p-2">
+                  <span className="block text-[9px] uppercase tracking-wider text-slate-400">Current Draw</span>
+                  <span className="text-sm font-bold font-mono text-white mt-0.5 block">3.42 A</span>
+                  <span className="text-[8px] text-emerald-400">ACS712 Live</span>
+                </div>
+                <div className="rounded-xl border border-white/8 bg-black/20 p-2">
+                  <span className="block text-[9px] uppercase tracking-wider text-slate-400">Vibration</span>
+                  <span className="text-sm font-bold font-mono text-white mt-0.5 block">{machine3Data.vibration ?? 0.04} mm/s</span>
+                  <span className="text-[8px] text-emerald-400">Hall / Accel</span>
+                </div>
+              </div>
+            </div>
+
+            <div className="pt-3 border-t border-white/8 flex items-center justify-between gap-2">
+              <span className="text-[11px] text-slate-400 font-mono truncate">
+                Port: <code className="text-emerald-300">/dev/ttyUSB0 (CP2102)</code>
+              </span>
+              <div className="flex items-center gap-1.5">
+                <button
+                  onClick={() => setShowWebSerialModal(true)}
+                  className="text-xs font-semibold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 px-2.5 py-1.5 rounded-lg hover:bg-emerald-500/30 transition-all flex items-center gap-1"
+                >
+                  <Usb className="w-3.5 h-3.5" /> USB Stream
+                </button>
+                <Link
+                  href="/dashboard/machines/ESP32-HARDWARE-01"
+                  className="text-xs font-semibold bg-white text-black px-2.5 py-1.5 rounded-lg hover:bg-neutral-200 transition-all flex items-center gap-1 shadow-[0_2px_8px_rgba(255,255,255,0.15)]"
                 >
                   Machine <ArrowRight className="w-3 h-3" />
                 </Link>
