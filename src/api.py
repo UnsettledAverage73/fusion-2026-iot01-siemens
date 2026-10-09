@@ -478,25 +478,8 @@ async def chat_with_agent(req: ChatRequest):
         except Exception as e:
             print(f"Pre-computed cache retrieval error: {e}")
 
-    # 1. Check AI Cache (Phase 4)
-    # Using a deterministic hash of the message content
-    last_msg = req.messages[-1]["content"] if req.messages else ""
-    msg_hash = hashlib.sha256(last_msg.encode()).hexdigest()[:16]
-    cache_key = f"ai_cache:{req.machineId}:{req.sessionId or 'global'}:{msg_hash}"
-    
-    cached_response = None
-    try:
-        cached_response = await r.get(cache_key)
-        if cached_response:
-            try:
-                return {**json.loads(cached_response), "cached": True}
-            except:
-                return {"response": cached_response, "cached": True}
-    except Exception as re:
-        print(f"Redis Cache Read Error: {re}")
-
-    # 2. Advanced Real-time Inference
-    user_msg = req.messages[-1]["content"]
+    # 1. Advanced Real-Time Inference with Autonomous Fleet Sentinel Scan
+    user_msg = req.messages[-1]["content"] if req.messages else ""
     context_prefix = f"Analyzing Asset: {req.machineName} ({req.machineId}). Current State: {json.dumps(req.equipmentData)}. " if req.machineId != "GLOBAL" and req.equipmentData else ""
     
     try:
@@ -506,13 +489,6 @@ async def chat_with_agent(req: ChatRequest):
             session_id=req.sessionId
         )
         response_data = {**result, "machineId": req.machineId, "sessionId": req.sessionId}
-        
-        # 3. Save to Cache
-        try:
-            await r.setex(cache_key, 3600, json.dumps(response_data)) # Cache for 1 hour
-        except Exception as re:
-            print(f"Redis Cache Write Error: {re}")
-        
         return {**response_data, "cached": False}
     except Exception as e:
         import traceback
@@ -557,6 +533,23 @@ async def orchestrate_multi_model(req: OrchestrationRequest):
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Orchestration Error: {str(e)}")
+
+@app.get("/api/agent/sentinel/scan")
+async def get_sentinel_fleet_scan(machine_id: str = "GLOBAL"):
+    """
+    Returns real-time fleet diagnostic scan across Physical Hardware (ESP32),
+    Dataset 1 Terminal (CB-01), and Dataset 2 Power Transformer (315 MVA) with SemIf decisions.
+    """
+    try:
+        scan = agent.sentinel.inspect_fleet(target_machine_id=machine_id)
+        return {
+            "status": "success",
+            "timestamp": datetime.now().isoformat(),
+            "target_machine_id": machine_id,
+            "data": scan
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Sentinel Scan Error: {str(e)}")
 
 @app.post("/api/chat/upload")
 async def upload_manual(machine_id: str = Form(...), file: UploadFile = File(...)):

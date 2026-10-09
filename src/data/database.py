@@ -464,21 +464,52 @@ def get_machine_textual_history(machine_id):
     return history
 
 def get_machine_health_summary(machine_id):
-    """Returns a summary of machine health for scheduling prioritization."""
+    """Returns a summary of machine health for scheduling prioritization and real-time AI monitoring."""
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
     cursor = conn.cursor()
     
+    # 0. Asset Metadata
+    cursor.execute("SELECT id, name, status, production_line FROM equipment WHERE id = ?", (machine_id,))
+    eq_row = cursor.fetchone()
+    eq_info = dict(eq_row) if eq_row else {"id": machine_id, "name": machine_id, "status": "online"}
+    
     # 1. Recent Alerts
-    cursor.execute("SELECT severity, reason FROM ai_alerts WHERE equipment_id = ? ORDER BY timestamp DESC LIMIT 3", (machine_id,))
+    cursor.execute("SELECT severity, reason, timestamp FROM ai_alerts WHERE equipment_id = ? ORDER BY timestamp DESC LIMIT 3", (machine_id,))
     alerts = [dict(row) for row in cursor.fetchall()]
     
-    # 2. Recent Telemetry
-    cursor.execute("SELECT temperature, vibration FROM sensor_readings WHERE equipment_id = ? ORDER BY timestamp DESC LIMIT 5", (machine_id,))
-    telemetry = [dict(row) for row in cursor.fetchall()]
-    
+    # 2. Modern Key-Value Telemetry (Latest value per parameter_key)
+    cursor.execute("""
+        SELECT parameter_key, value, string_value, MAX(timestamp) as ts
+        FROM telemetry_readings
+        WHERE machine_id = ?
+        GROUP BY parameter_key
+    """, (machine_id,))
+    kv_rows = cursor.fetchall()
+    fused_telemetry = {}
+    for r in kv_rows:
+        val = r["value"] if r["value"] is not None else r["string_value"]
+        fused_telemetry[r["parameter_key"]] = val
+
+    # 3. Legacy Sensor Readings (fallback or additional temp/vibration)
+    cursor.execute("SELECT temperature, vibration, timestamp FROM sensor_readings WHERE equipment_id = ? ORDER BY timestamp DESC LIMIT 5", (machine_id,))
+    legacy_rows = [dict(row) for row in cursor.fetchall()]
+    if legacy_rows:
+        if "temperature" not in fused_telemetry and legacy_rows[0].get("temperature") is not None:
+            fused_telemetry["temperature"] = legacy_rows[0]["temperature"]
+        if "vibration" not in fused_telemetry and legacy_rows[0].get("vibration") is not None:
+            fused_telemetry["vibration"] = legacy_rows[0]["vibration"]
+            fused_telemetry["vibration_rms"] = legacy_rows[0]["vibration"]
+
     conn.close()
-    return {"alerts": alerts, "telemetry": telemetry}
+    return {
+        "id": machine_id,
+        "name": eq_info.get("name", machine_id),
+        "status": eq_info.get("status", "online"),
+        "alerts": alerts,
+        "telemetry": [fused_telemetry] if fused_telemetry else legacy_rows,
+        "live_metrics": fused_telemetry
+    }
 
 def get_all_pending_tasks():
     """Retrieves all tasks that are not completed."""

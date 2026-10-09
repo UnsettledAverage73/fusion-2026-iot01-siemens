@@ -1,17 +1,23 @@
 """
-SemIf Direct-Logit Engine for Predictive Maintenance.
+SemIf Direct-Logit Decision Engine for Sovereign Predictive Maintenance.
 
 Implements the SemIf paradigm:
-Instead of generating autoregressive tokens to classify or choose actions,
-SemIf directly reads logits/logprobs assigned to allowed candidate options
-from open models (local via Ollama/PyTorch or cloud via Groq/OpenAI logprobs).
+Evaluates real-time machine telemetry, physical hardware signals, and ML ensemble models
+(Dataset 1 Terminal & Dataset 2 Transformer) to compute direct decision logits across
+canonical industrial actions without conversational hallucinations:
+- EMERGENCY_SHUTDOWN
+- THROTTLE_LOAD
+- INSPECT_BEARING
+- LUBRICATE_ASSET
+- CALIBRATE_SENSORS
+- NORMAL_MONITORING
 
-Converts logprobs into a normalized probability distribution using Softmax,
-enabling typed, zero-generation-latency System 1 decisions.
+Softmax normalizes direct logits into an exact probability distribution for System-1 triage.
 """
 
 import math
 import os
+import json
 import requests
 from typing import Dict, List, Optional, Tuple, Any
 
@@ -23,9 +29,9 @@ except ImportError:
 # Canonical industrial decision actions
 DEFAULT_ACTIONS = [
     "EMERGENCY_SHUTDOWN",
+    "THROTTLE_LOAD",
     "INSPECT_BEARING",
     "LUBRICATE_ASSET",
-    "THROTTLE_LOAD",
     "CALIBRATE_SENSORS",
     "NORMAL_MONITORING"
 ]
@@ -35,38 +41,38 @@ ACTION_DEFINITIONS = {
     "EMERGENCY_SHUTDOWN": {
         "label": "Emergency Shutdown",
         "severity": "CRITICAL",
-        "description": "Trigger immediate interlock shutdown to prevent catastrophic asset failure."
-    },
-    "INSPECT_BEARING": {
-        "label": "Inspect Bearing",
-        "severity": "HIGH",
-        "description": "Despatch technician to inspect mechanical bearings, vibration signatures, or misalignment."
-    },
-    "LUBRICATE_ASSET": {
-        "label": "Lubricate Asset",
-        "severity": "MEDIUM",
-        "description": "Apply grease or synthetic lubricant to relieve friction and thermal accumulation."
+        "description": "Trigger immediate interlock shutdown to prevent catastrophic asset failure or electrical fire."
     },
     "THROTTLE_LOAD": {
         "label": "Throttle Load",
         "severity": "MEDIUM",
-        "description": "Derate machine operational speed/load by 20-30% to stabilize temperatures."
+        "description": "Derate operational throughput or speed by 25-35% to arrest thermal/electrical accumulation."
+    },
+    "INSPECT_BEARING": {
+        "label": "Inspect Bearing / Mechanism",
+        "severity": "HIGH",
+        "description": "Despatch technician to inspect mechanical bearings, vibration harmonics, or contact misalignment."
+    },
+    "LUBRICATE_ASSET": {
+        "label": "Lubricate Asset",
+        "severity": "MEDIUM",
+        "description": "Apply grease or synthetic lubricant to relieve mechanical friction and dissipate localized heat."
     },
     "CALIBRATE_SENSORS": {
         "label": "Calibrate Sensors",
         "severity": "LOW",
-        "description": "Verify sensor telemetry against physical reference gauges to resolve drift."
+        "description": "Verify sensor telemetry against physical reference gauges to resolve transducer drift or contact error."
     },
     "NORMAL_MONITORING": {
         "label": "Normal Monitoring",
         "severity": "INFO",
-        "description": "Operating within nominal design envelope. Continue standard telemetry sampling."
+        "description": "Operating strictly within nominal design envelope. Continue standard high-cadence telemetry stream."
     }
 }
 
 
 def softmax(scores: Dict[str, float], temperature: float = 1.0) -> Dict[str, float]:
-    """Compute softmax probabilities from logit or logprob scores."""
+    """Compute softmax probabilities from logit scores."""
     if not scores:
         return {}
     temperature = max(temperature, 1e-4)
@@ -74,14 +80,14 @@ def softmax(scores: Dict[str, float], temperature: float = 1.0) -> Dict[str, flo
     exp_scores = {k: math.exp((v - max_val) / temperature) for k, v in scores.items()}
     total = sum(exp_scores.values())
     if total <= 0:
-        return {k: 1.0 / len(scores) for k in scores}
+        return {k: round(1.0 / len(scores), 4) for k in scores}
     return {k: round(v / total, 4) for k, v in exp_scores.items()}
 
 
 class SemIfEngine:
     """
     Direct-Logit decision scorer.
-    Evaluates state and allowed actions without autoregressive generation.
+    Evaluates state and allowed actions across physical hardware, Dataset 1, and Dataset 2.
     """
     def __init__(
         self,
@@ -100,133 +106,178 @@ class SemIfEngine:
             except Exception:
                 self.groq_client = None
 
-    def build_scoring_prompt(
+    def score_with_llm_guidance(
         self,
         state: Dict[str, Any],
         candidate_options: List[str]
-    ) -> str:
-        """
-        Builds the prompt formatted for direct option logit extraction.
-        Options are enumerated with letter tokens: A, B, C, D...
-        """
-        options_formatted = "\n".join(
-            [f"{chr(65 + i)}: {opt}" for i, opt in enumerate(candidate_options)]
-        )
-        telemetry_lines = "\n".join(
-            [f"- {k}: {v}" for k, v in state.get("telemetry", {}).items()]
-        ) or "None recorded"
-        alerts_lines = "\n".join(
-            [f"- {a}" for a in state.get("alerts", [])]
-        ) or "None"
-
-        prompt = f"""You are an industrial high-speed reflex triage controller.
-Evaluate the current asset telemetry and anomalies, then select the single best immediate action code.
-
-ASSET: {state.get('machine_id', 'UNKNOWN')} ({state.get('machine_name', 'Industrial Asset')})
-TELEMETRY:
-{telemetry_lines}
-
-ALERTS:
-{alerts_lines}
-
-CONTEXT: {state.get('context', 'Routine real-time monitoring')}
-
-ALLOWED ACTIONS:
-{options_formatted}
-
-Select exactly one letter representing the best action from the allowed list:"""
-        return prompt
-
-    def score_with_groq_logprobs(
-        self,
-        prompt: str,
-        candidate_options: List[str]
     ) -> Optional[Dict[str, float]]:
         """
-        Executes a 1-token generation with logprobs=True via Groq.
-        Extracts native log probabilities for candidate tokens (A, B, C, D...).
+        Uses Groq LLM (Qwen/Llama) with structured JSON scoring to assign logit potentials
+        to each candidate option based on technical operational context.
         """
         if not self.groq_client:
             return None
+
+        prompt = f"""You are an industrial high-speed reflex safety triage controller.
+Evaluate the current asset telemetry and anomalies, then assign an operational affinity score (from -10.0 to +10.0)
+to each allowed action code based on safety standards (ISO 10816, IEC 60038, IEEE C57).
+
+ASSET: {state.get('machine_id', 'UNKNOWN')} ({state.get('machine_name', 'Industrial Asset')})
+TELEMETRY: {json.dumps(state.get('telemetry', {}))}
+ACTIVE ANOMALIES: {json.dumps(state.get('alerts', []))}
+ML PREDICTIONS: {json.dumps(state.get('ml_insights', {}))}
+CONTEXT: {state.get('context', 'Routine real-time monitoring')}
+
+ALLOWED ACTIONS: {candidate_options}
+
+Return ONLY a JSON object mapping each allowed action to its score (float between -10.0 and +10.0).
+Example: {{"NORMAL_MONITORING": 8.5, "THROTTLE_LOAD": -2.0, ...}}"""
 
         try:
             response = self.groq_client.chat.completions.create(
                 model=self.default_model,
                 messages=[
-                    {"role": "system", "content": "You are a typed industrial decision scorer. Output exactly one option letter."},
+                    {"role": "system", "content": "You are a typed industrial decision scorer. Output valid JSON only."},
                     {"role": "user", "content": prompt}
                 ],
-                max_tokens=1,
+                max_tokens=200,
                 temperature=0.0,
-                logprobs=True,
-                top_logprobs=10
+                response_format={"type": "json_object"}
             )
-
-            choice = response.choices[0]
-            if not choice.logprobs or not choice.logprobs.content:
-                return None
-
-            top_logprobs = choice.logprobs.content[0].top_logprobs
-            token_logprobs = {t.token.strip().upper(): t.logprob for t in top_logprobs}
-
-            # Map option letter tokens back to candidate action strings
+            raw = response.choices[0].message.content
+            parsed = json.loads(raw)
             scores = {}
-            for i, opt in enumerate(candidate_options):
-                letter = chr(65 + i)
-                # If the letter was in top_logprobs, use its logprob, else floor with -15.0
-                lp = token_logprobs.get(letter, -15.0)
-                scores[opt] = lp
-
+            for opt in candidate_options:
+                val = float(parsed.get(opt, -5.0))
+                scores[opt] = val
             return scores
         except Exception:
             return None
 
-    def score_with_local_heuristics(
+    def score_with_physics_ensemble(
         self,
         state: Dict[str, Any],
         candidate_options: List[str]
-    ) -> Dict[str, float]:
+    ) -> Tuple[Dict[str, float], List[str]]:
         """
-        Deterministic, zero-latency logit approximation based on asset physics.
-        Serves as a robust local sovereign fallback when network APIs are offline.
+        Calibrated, deterministic direct-logit scoring based on physics standards & ML models.
+        Sub-millisecond latency, zero network dependency, guaranteed safety bounds.
         """
         telemetry = state.get("telemetry", {})
         alerts = state.get("alerts", [])
-
-        # Extract primary metrics
-        vib = float(telemetry.get("vibration_rms") or telemetry.get("vibration") or 0.0)
-        temp = float(telemetry.get("temperature") or 0.0)
-        pressure = float(telemetry.get("pressure") or 0.0)
-
-        # Baseline logits
-        raw_logits = {opt: -2.0 for opt in candidate_options}
+        ml = state.get("ml_insights", {})
+        machine_id = str(state.get("machine_id", "")).upper()
+        
+        raw_logits = {opt: -1.5 for opt in candidate_options}
         if "NORMAL_MONITORING" in raw_logits:
-            raw_logits["NORMAL_MONITORING"] = 2.0
+            raw_logits["NORMAL_MONITORING"] = 3.5
 
-        # Critical threshold breaches -> EMERGENCY_SHUTDOWN
-        if vib > 5.0 or temp > 95.0 or any("CRITICAL" in str(a).upper() for a in alerts):
-            if "EMERGENCY_SHUTDOWN" in raw_logits:
-                raw_logits["EMERGENCY_SHUTDOWN"] = 6.5
-            if "NORMAL_MONITORING" in raw_logits:
-                raw_logits["NORMAL_MONITORING"] = -6.0
+        drivers: List[str] = []
 
-        # High vibration -> INSPECT_BEARING
-        elif vib > 3.2:
-            if "INSPECT_BEARING" in raw_logits:
-                raw_logits["INSPECT_BEARING"] = 5.0
-            if "NORMAL_MONITORING" in raw_logits:
-                raw_logits["NORMAL_MONITORING"] = -3.0
+        # Extract telemetry across sensor names
+        temp = float(telemetry.get("temperature") or telemetry.get("temp") or telemetry.get("winding_temp") or telemetry.get("oil_temp") or 0.0)
+        vib = float(telemetry.get("vibration_rms") or telemetry.get("vibration") or telemetry.get("vibration_level") or 0.0)
+        current = float(telemetry.get("current_draw") or telemetry.get("current") or 0.0)
+        voltage = float(telemetry.get("voltage") or 0.0)
+        rpm = float(telemetry.get("rpm") or telemetry.get("speed") or 0.0)
+        button_pressed = bool(
+            str(telemetry.get("push_button", "")).upper() in ("PRESSED", "1", "TRUE") or
+            str(telemetry.get("button", "")).upper() in ("PRESSED", "1", "TRUE")
+        )
+        c2h2 = float(telemetry.get("c2h2") or 0.0)
+        c2h4 = float(telemetry.get("c2h4") or 0.0)
+        bdv = float(telemetry.get("bdv") or 0.0)
+        
+        # ML model signals
+        fault_prob = float(ml.get("fault_probability") or ml.get("fault_prob") or 0.0)
+        health_index = float(ml.get("health_index") or (100.0 if not ml else 80.0))
+        dga_diag = str(ml.get("dga_diagnosis") or ml.get("predicted_fault") or "").upper()
 
-        # High temperature with moderate vibration -> LUBRICATE_ASSET or THROTTLE_LOAD
-        elif temp > 75.0:
-            if "LUBRICATE_ASSET" in raw_logits:
-                raw_logits["LUBRICATE_ASSET"] = 4.2
-            if "THROTTLE_LOAD" in raw_logits:
-                raw_logits["THROTTLE_LOAD"] = 3.5
-            if "NORMAL_MONITORING" in raw_logits:
+        # 1. Physical Push Button (Emergency E-Stop interlock)
+        if button_pressed:
+            drivers.append("Physical emergency E-Stop button pressed on hardware")
+            raw_logits["EMERGENCY_SHUTDOWN"] = 8.5
+            raw_logits["NORMAL_MONITORING"] = -8.0
+
+        # 2. Dataset 2: Transformer DGA Arcing / Dielectric Breakdown (IEEE C57.104)
+        elif "XFMR" in machine_id or c2h2 > 0 or bdv > 0:
+            if c2h2 >= 4.0 or "ARCING" in dga_diag or "D1" in dga_diag or "D2" in dga_diag:
+                drivers.append(f"High-energy electrical arcing detected (C2H2 = {c2h2:.1f} ppm)")
+                raw_logits["EMERGENCY_SHUTDOWN"] = 8.0
+                raw_logits["NORMAL_MONITORING"] = -7.0
+            elif bdv > 0 and bdv < 30.0:
+                drivers.append(f"Dielectric breakdown voltage critical collapse (BDV = {bdv:.1f} kV)")
+                raw_logits["EMERGENCY_SHUTDOWN"] = 7.0
+                raw_logits["THROTTLE_LOAD"] = 4.0
+                raw_logits["NORMAL_MONITORING"] = -5.0
+            elif c2h4 > 150.0 or "T3" in dga_diag or "THERMAL" in dga_diag:
+                drivers.append(f"Severe thermal hotspot degradation (C2H4 = {c2h4:.1f} ppm)")
+                raw_logits["THROTTLE_LOAD"] = 6.5
+                raw_logits["LUBRICATE_ASSET"] = 3.5
+                raw_logits["NORMAL_MONITORING"] = -4.0
+            elif health_index < 50.0:
+                drivers.append(f"Transformer health index degraded ({health_index:.1f}/100)")
+                raw_logits["THROTTLE_LOAD"] = 5.0
+                raw_logits["INSPECT_BEARING"] = 4.0
                 raw_logits["NORMAL_MONITORING"] = -2.0
 
-        return raw_logits
+        # 3. Dataset 1: Smart Grid Terminal / Switchgear (IEC 60038 / IEC 62271)
+        elif "SGT" in machine_id or "TERM" in machine_id or fault_prob > 0.0:
+            if fault_prob >= 0.70:
+                drivers.append(f"Terminal ML fault classifier triggered trip risk ({fault_prob*100:.1f}%)")
+                raw_logits["EMERGENCY_SHUTDOWN"] = 7.5
+                raw_logits["NORMAL_MONITORING"] = -6.0
+            elif fault_prob >= 0.40 or (voltage > 0 and (voltage < 207.0 or voltage > 253.0)):
+                drivers.append(f"Voltage deviation breach or elevated fault probability ({fault_prob*100:.1f}%)")
+                raw_logits["THROTTLE_LOAD"] = 6.0
+                raw_logits["CALIBRATE_SENSORS"] = 4.0
+                raw_logits["NORMAL_MONITORING"] = -3.0
+
+        # 4. Physical Hardware Node (ESP32 Live Sensors: DHT11, ACS712, Hall)
+        elif "ESP32" in machine_id or "HARDWARE" in machine_id:
+            if temp > 35.0:
+                drivers.append(f"DHT11 temperature critical breach ({temp:.1f}°C > 35.0°C safety cap)")
+                raw_logits["EMERGENCY_SHUTDOWN"] = 6.8
+                raw_logits["THROTTLE_LOAD"] = 4.5
+                raw_logits["NORMAL_MONITORING"] = -5.0
+            elif temp > 30.0:
+                drivers.append(f"DHT11 temperature elevated warning ({temp:.1f}°C)")
+                raw_logits["THROTTLE_LOAD"] = 5.2
+                raw_logits["LUBRICATE_ASSET"] = 3.0
+                raw_logits["NORMAL_MONITORING"] = -2.0
+            
+            if current > 15.0:
+                drivers.append(f"ACS712 current draw overcurrent ({current:.1f} A)")
+                raw_logits["THROTTLE_LOAD"] = max(raw_logits.get("THROTTLE_LOAD", 0), 5.5)
+                raw_logits["EMERGENCY_SHUTDOWN"] = max(raw_logits.get("EMERGENCY_SHUTDOWN", 0), 4.5)
+
+        # 5. General Industrial Physics Standards (ISO 10816 Vibration & Thermal)
+        if vib >= 5.0:
+            drivers.append(f"ISO 10816 Zone D dangerous vibration ({vib:.2f} mm/s)")
+            raw_logits["EMERGENCY_SHUTDOWN"] = max(raw_logits.get("EMERGENCY_SHUTDOWN", -1.5), 7.2)
+            raw_logits["INSPECT_BEARING"] = max(raw_logits.get("INSPECT_BEARING", -1.5), 6.5)
+            raw_logits["NORMAL_MONITORING"] = -6.0
+        elif vib >= 3.2:
+            drivers.append(f"ISO 10816 Zone C restricted operation vibration ({vib:.2f} mm/s)")
+            raw_logits["INSPECT_BEARING"] = max(raw_logits.get("INSPECT_BEARING", -1.5), 6.0)
+            raw_logits["THROTTLE_LOAD"] = max(raw_logits.get("THROTTLE_LOAD", -1.5), 4.0)
+            raw_logits["NORMAL_MONITORING"] = -3.0
+
+        if temp >= 80.0:
+            drivers.append(f"Extreme thermal hotspot ({temp:.1f}°C)")
+            raw_logits["EMERGENCY_SHUTDOWN"] = max(raw_logits.get("EMERGENCY_SHUTDOWN", -1.5), 7.0)
+            raw_logits["THROTTLE_LOAD"] = max(raw_logits.get("THROTTLE_LOAD", -1.5), 6.0)
+            raw_logits["NORMAL_MONITORING"] = -5.0
+        elif temp >= 65.0:
+            drivers.append(f"Elevated operating temperature ({temp:.1f}°C)")
+            raw_logits["THROTTLE_LOAD"] = max(raw_logits.get("THROTTLE_LOAD", -1.5), 5.0)
+            raw_logits["LUBRICATE_ASSET"] = max(raw_logits.get("LUBRICATE_ASSET", -1.5), 4.5)
+            raw_logits["NORMAL_MONITORING"] = -2.0
+
+        if not drivers:
+            drivers.append("All operational parameters within standard continuous duty envelope")
+
+        return raw_logits, drivers
 
     def evaluate_decision(
         self,
@@ -235,30 +286,37 @@ Select exactly one letter representing the best action from the allowed list:"""
     ) -> Dict[str, Any]:
         """
         Main SemIf entrypoint:
-        1. Formulates state + candidate options.
-        2. Tries Groq logprobs (SemIf cloud direct-logit).
-        3. Falls back to physics-informed direct scoring.
-        4. Softmax normalizes into action probabilities.
-        5. Returns argmax action, probability distribution, and latency profile.
+        1. Formulates state across hardware, Dataset 1, and Dataset 2.
+        2. Tries LLM-guided logit extraction via Groq (Qwen/Llama) if requested.
+        3. Fuses with calibrated Physics & ML-Ensemble direct-logit scorers.
+        4. Softmax normalizes into probability distribution across candidate actions.
+        5. Returns argmax action, probability distribution, confidence, and drivers.
         """
         options = candidate_options or list(DEFAULT_ACTIONS)
-        prompt = self.build_scoring_prompt(state, options)
+        source = "physics_ensemble_logit"
 
-        source = "groq_direct_logit"
-        scores = self.score_with_groq_logprobs(prompt, options)
+        # 1. Calibrated Physics & ML-Ensemble direct-logit baseline
+        physics_logits, drivers = self.score_with_physics_ensemble(state, options)
+        final_logits = dict(physics_logits)
 
-        if not scores:
-            source = "local_physics_logit"
-            scores = self.score_with_local_heuristics(state, options)
+        # 2. If Groq client is active and context asks for complex triage, refine with LLM logits
+        if self.groq_client and state.get("use_llm_scoring", False):
+            llm_logits = self.score_with_llm_guidance(state, options)
+            if llm_logits:
+                source = "fused_llm_physics_logit"
+                # Weighted fusion: 60% physics/ML safety bounds + 40% LLM operational context
+                for opt in options:
+                    final_logits[opt] = round(0.6 * physics_logits.get(opt, 0.0) + 0.4 * llm_logits.get(opt, 0.0), 3)
 
-        probabilities = softmax(scores)
+        # 3. Softmax normalizer
+        probabilities = softmax(final_logits, temperature=1.0)
         best_action = max(probabilities.items(), key=lambda item: item[1])[0]
         confidence = probabilities.get(best_action, 0.0)
 
         action_meta = ACTION_DEFINITIONS.get(best_action, {
             "label": best_action,
             "severity": "INFO",
-            "description": "Standard action"
+            "description": "Standard operational action"
         })
 
         return {
@@ -269,5 +327,6 @@ Select exactly one letter representing the best action from the allowed list:"""
             "action_metadata": action_meta,
             "scoring_source": source,
             "allowed_options": options,
-            "is_emergency": best_action == "EMERGENCY_SHUTDOWN" and confidence >= 0.70
+            "key_drivers": drivers,
+            "is_emergency": best_action == "EMERGENCY_SHUTDOWN" and confidence >= 0.60
         }
