@@ -242,6 +242,23 @@ def predict_terminal(params: Dict[str, float]) -> Dict[str, Any]:
     impedance = v / (i + 0.01)
     mech_thermal = (vib * t) / 100.0
 
+    # Advanced IEC 60038 / IEC 62271 / ISO 10816 Physics Features
+    iec_under_v = max(0.0, 212.0 - v)
+    iec_over_v = max(0.0, v - 248.0)
+    v_excursion = iec_under_v + iec_over_v
+    iec_thermal = max(0.0, t - 68.0)
+    iso_vib_d = max(0.0, vib - 5.5)
+    vib_shock = (vib ** 2) / 10.0
+    sag_vib = iec_under_v * vib
+    phys_trip = (
+        (1.0 if t > 72.0 else 0.0) * 2.0 +
+        (1.0 if vib > 6.0 else 0.0) * 2.5 +
+        (1.0 if (v < 212.0 or v > 248.0) else 0.0) * 2.0
+    )
+    joint_fail = (iec_thermal / 10.0) + (iso_vib_d / 2.0) + (v_excursion / 10.0)
+    app_real_loss = app_p - real_p
+    eff_loss = (100.0 - eff) * thermal_stress / 1000.0
+
     raw_row = {
         "Voltage(V)": v, "Current(A)": i, "Temperature(C)": t, "Frequency(Hz)": f,
         "Power_Factor": pf, "Vibration_Level": vib, "Device_Age(Years)": age,
@@ -251,7 +268,18 @@ def predict_terminal(params: Dict[str, float]) -> Dict[str, Any]:
         "Anomaly_Score": anomaly, "Thermal_Stress_Index": thermal_stress,
         "Voltage_Deviation_Ratio": volt_dev, "Frequency_Deviation": freq_dev,
         "Power_Factor_Loss": pf_loss, "Impedance_Proxy": impedance,
-        "Mech_Thermal_Shock": mech_thermal
+        "Mech_Thermal_Shock": mech_thermal,
+        "IEC_UnderVoltage_Margin": iec_under_v,
+        "IEC_OverVoltage_Margin": iec_over_v,
+        "Voltage_Excursion_Severity": v_excursion,
+        "IEC_Thermal_Excursion": iec_thermal,
+        "ISO_Vib_ZoneD_Excursion": iso_vib_d,
+        "Vibration_Pure_Shock": vib_shock,
+        "Sag_Vibration_Coupling": sag_vib,
+        "Physical_Trip_Indicator": phys_trip,
+        "Joint_Failure_Vector": joint_fail,
+        "Apparent_Real_Loss": app_real_loss,
+        "Efficiency_Loss_Factor": eff_loss
     }
 
     # Model inference
