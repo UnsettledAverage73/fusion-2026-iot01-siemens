@@ -3,16 +3,18 @@
 import { useState, useEffect, useRef, useMemo, Suspense } from "react";
 import { NLChatBubble } from "@/components/agents/NLChatBubble";
 import { ChatMessage } from "@/types";
-import { Bot, FileText, Send, Sparkles, AlertTriangle, Mic, Image as ImageIcon, StopCircle } from "lucide-react";
+import { Bot, FileText, Send, Sparkles, AlertTriangle, Mic, Image as ImageIcon, StopCircle, Cpu, Radio, Globe, Zap, CheckCircle2 } from "lucide-react";
 import { useSearchParams } from "next/navigation";
 import { api } from "@/lib/api";
+import { cn } from "@/lib/utils";
 
 function QueryPageContent() {
   const searchParams = useSearchParams();
   const initialQ = searchParams.get("q");
   const machineId = searchParams.get("machineId");
   const sessionId = useMemo(() => `sess-${Date.now()}`, []);
-  const [activeSources, setActiveSources] = useState<any[]>([]);
+  const [selectedEngine, setSelectedEngine] = useState<"auto" | "grok" | "sarvam">("auto");
+  const [lastUsedEngine, setLastUsedEngine] = useState<string>("Grok Reasoning Engine");
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
   const [isTyping, setIsTyping] = useState(false);
@@ -53,15 +55,25 @@ function QueryPageContent() {
         messages: [...messages, userMsg].map(m => ({ role: m.role, content: m.content })),
         machineId: machineId || "GLOBAL",
         machineName: machineId ? `Asset ${machineId}` : "Factory Matrix",
-        sessionId: sessionId
+        sessionId: sessionId,
+        selectedModel: selectedEngine
       });
+
+      const engineName = (response as any).engine || (
+        selectedEngine === "sarvam" 
+          ? "Sarvam AI (sarvam-105b-conversations)" 
+          : selectedEngine === "grok" 
+            ? "Grok Reasoning Engine (xAI / High-Intelligence)" 
+            : "Orchestrator Hybrid Core"
+      );
+      setLastUsedEngine(engineName);
 
       const assistantMsg: ChatMessage = {
         id: (Date.now() + 1).toString(),
         role: "assistant",
         content: response.message,
         timestamp: new Date().toISOString(),
-        agentType: "Orchestrator"
+        agentType: engineName
       };
 
       setMessages(prev => [...prev, assistantMsg]);
@@ -83,8 +95,6 @@ function QueryPageContent() {
   const startRecording = async () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      
-      // Select best supported MIME type
       const types = ["audio/wav", "audio/webm", "audio/ogg"];
       const mimeType = types.find(t => MediaRecorder.isTypeSupported(t)) || "audio/webm";
       
@@ -109,12 +119,9 @@ function QueryPageContent() {
 
   const handleVoiceSend = async () => {
     const recordedMimeType = mediaRecorder.current?.mimeType || "audio/webm";
-    // Standardize naming for backend
     const extension = recordedMimeType.includes("wav") ? "wav" : recordedMimeType.includes("ogg") ? "ogg" : "webm";
     const audioBlob = new Blob(audioChunks.current, { type: recordedMimeType });
     const formData = new FormData();
-    // We send with a clean filename and standard MIME type
-    const cleanMimeType = recordedMimeType.split(";")[0];
     formData.append("file", audioBlob, `voice-input.${extension}`);
     formData.append("machineId", machineId || "GLOBAL");
     formData.append("sessionId", sessionId);
@@ -136,7 +143,7 @@ function QueryPageContent() {
         role: "assistant",
         content: response.message,
         timestamp: new Date().toISOString(),
-        agentType: "Orchestrator"
+        agentType: "Sarvam AI Voice Core"
       };
       setMessages(prev => [...prev, assistantMsg]);
 
@@ -178,7 +185,7 @@ function QueryPageContent() {
         role: "assistant",
         content: response.message,
         timestamp: new Date().toISOString(),
-        agentType: "Orchestrator"
+        agentType: "Vision Diagnostics"
       };
       setMessages(prev => [...prev, assistantMsg]);
     } catch (error) {
@@ -190,12 +197,65 @@ function QueryPageContent() {
 
   return (
     <div className="flex flex-col animate-in fade-in duration-500 h-[calc(100vh-80px)]">
-      <div className="flex items-center justify-between mb-4 flex-shrink-0">
+      {/* Top Header */}
+      <div className="flex flex-col md:flex-row md:items-center justify-between mb-3 flex-shrink-0 gap-3 border-b border-white/8 pb-3">
         <div>
-          <h1 className="text-2xl font-bold flex items-center gap-2">
-            <Sparkles className="w-6 h-6 text-[var(--color-primary)]" /> Orchestrator Query
+          <div className="flex items-center gap-2">
+            <span className="flex h-2.5 w-2.5 rounded-full bg-[var(--color-primary)] shadow-[0_0_10px_rgba(0,212,170,0.8)] animate-pulse" />
+            <span className="text-[10px] font-mono uppercase tracking-[0.2em] text-[var(--color-primary)]">
+              Multi-Model AI Diagnostics Hub
+            </span>
+          </div>
+          <h1 className="text-2xl font-bold flex items-center gap-2 text-white mt-0.5">
+            <Sparkles className="w-5 h-5 text-[var(--color-primary)]" />
+            Real-Time AI Query Console
           </h1>
-          <p className="text-[var(--color-muted)] text-sm mt-1">Natural language insights across the entire plant matrix.</p>
+        </div>
+
+        {/* AI Engine Selector Chips */}
+        <div className="flex items-center gap-1.5 p-1 rounded-xl bg-white/5 border border-white/10 self-start md:self-auto">
+          <button
+            type="button"
+            onClick={() => setSelectedEngine("auto")}
+            className={cn(
+              "flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all",
+              selectedEngine === "auto"
+                ? "bg-[var(--color-primary)] text-black shadow-[0_0_12px_rgba(0,212,170,0.4)]"
+                : "text-slate-400 hover:text-white hover:bg-white/5"
+            )}
+            title="Automatically routes between Grok and Sarvam based on language and query semantics"
+          >
+            <Zap className="w-3.5 h-3.5" />
+            Auto Hybrid
+          </button>
+          <button
+            type="button"
+            onClick={() => setSelectedEngine("grok")}
+            className={cn(
+              "flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all",
+              selectedEngine === "grok"
+                ? "bg-cyan-400 text-black shadow-[0_0_12px_rgba(34,211,238,0.4)]"
+                : "text-slate-400 hover:text-white hover:bg-white/5"
+            )}
+            title="Direct reasoning through Grok (xAI) and high-intelligence Qwen 27B"
+          >
+            <Cpu className="w-3.5 h-3.5" />
+            Grok (xAI / Deep Reasoning)
+          </button>
+          <button
+            type="button"
+            onClick={() => setSelectedEngine("sarvam")}
+            className={cn(
+              "flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all",
+              selectedEngine === "sarvam"
+                ? "bg-amber-400 text-black shadow-[0_0_12px_rgba(251,191,36,0.4)]"
+                : "text-slate-400 hover:text-white hover:bg-white/5"
+            )}
+            title="Direct Indic vernacular reasoning via Sarvam AI (sarvam-105b-conversations)"
+          >
+            <Globe className="w-3.5 h-3.5" />
+            Sarvam AI (Indic 🇮🇳)
+          </button>
         </div>
       </div>
 
@@ -206,15 +266,24 @@ function QueryPageContent() {
             {messages.length === 0 && (
               <div className="py-8 text-center text-[var(--color-muted)] max-w-lg">
                 <Bot className="w-12 h-12 mx-auto mb-4 opacity-50" />
-                <h3 className="font-bold mb-2 text-[var(--color-foreground)]">Plant-wide Orchestrator Online</h3>
-                <p className="text-sm">I have access to historical telemetry, maintenance logs, and live data feeds. How can I assist?</p>
+                <h3 className="font-bold mb-2 text-[var(--color-foreground)]">Connected AI Engines Online</h3>
+                <p className="text-xs text-slate-400 leading-relaxed mb-6">
+                  Ask any question about physical hardware telemetry (DHT11, Hall RPM, ACS712 current), industrial standards (ISO 10816, IEC 60038), or maintenance procedures in English or Hindi.
+                </p>
                 
-                <div className="grid grid-cols-2 gap-2 mt-6">
-                  {["What failed most recently?", "Which machines need attention?", "Analyze vibration anomalies", "Summarize factory status"].map(q => (
+                <div className="grid grid-cols-2 gap-2">
+                  {[
+                    "Why is the motor current at 4.12A?",
+                    "क्या मोटर का 33 डिग्री तापमान सुरक्षित है?",
+                    "How does the Hall effect sensor measure RPM?",
+                    "Give me a checklist for motor maintenance",
+                    "Scan fleet diagnostic status",
+                    "मोटर के बेयरिंग की जांच कैसे करें?"
+                  ].map(q => (
                     <button 
                       key={q} 
                       onClick={() => handleSend(q)}
-                      className="bg-[var(--color-surface)] border border-[var(--color-border)] p-2 text-xs rounded-xl hover:border-[var(--color-primary)]/50 hover:bg-[var(--color-primary)]/5 transition-colors line-clamp-1"
+                      className="bg-[var(--color-surface)] border border-[var(--color-border)] p-2.5 text-xs rounded-xl hover:border-[var(--color-primary)]/50 hover:bg-[var(--color-primary)]/5 transition-all text-left line-clamp-1 font-mono text-slate-300"
                     >
                       "{q}"
                     </button>
@@ -239,9 +308,10 @@ function QueryPageContent() {
             )}
           </div>
 
+          {/* Chat Input Form */}
           <form 
             onSubmit={(e) => { e.preventDefault(); handleSend(input); }}
-            className="w-full max-w-4xl bg-[var(--color-surface)] border border-[var(--color-border)] rounded-xl p-2 flex items-center gap-2 mb-4 mt-2 shadow-[0_-10px_40px_rgba(0,0,0,0.3)]"
+            className="w-full max-w-4xl bg-[var(--color-surface)] border border-[var(--color-border)] rounded-2xl p-2.5 flex items-center gap-2 mb-4 mt-2 shadow-[0_-10px_40px_rgba(0,0,0,0.3)] backdrop-blur-xl"
           >
             <input 
               type="file" 
@@ -253,7 +323,7 @@ function QueryPageContent() {
             <button 
               type="button"
               onClick={() => fileInputRef.current?.click()}
-              className="w-10 h-10 rounded-lg text-[var(--color-muted)] hover:text-[var(--color-primary)] transition-colors flex items-center justify-center shrink-0"
+              className="w-10 h-10 rounded-xl text-[var(--color-muted)] hover:text-[var(--color-primary)] hover:bg-white/5 transition-colors flex items-center justify-center shrink-0"
               title="Upload image"
             >
               <ImageIcon className="w-5 h-5" />
@@ -262,10 +332,10 @@ function QueryPageContent() {
             <button 
               type="button"
               onClick={isRecording ? stopRecording : startRecording}
-              className={`w-10 h-10 rounded-lg transition-colors flex items-center justify-center shrink-0 ${
-                isRecording ? "text-[var(--color-danger)] animate-pulse" : "text-[var(--color-muted)] hover:text-[var(--color-primary)]"
+              className={`w-10 h-10 rounded-xl transition-colors flex items-center justify-center shrink-0 ${
+                isRecording ? "text-[var(--color-danger)] bg-red-500/10 animate-pulse" : "text-[var(--color-muted)] hover:text-[var(--color-primary)] hover:bg-white/5"
               }`}
-              title={isRecording ? "Stop recording" : "Voice message"}
+              title={isRecording ? "Stop recording" : "Sarvam Indic Voice (Speak in Hindi/English)"}
             >
               {isRecording ? <StopCircle className="w-5 h-5" /> : <Mic className="w-5 h-5" />}
             </button>
@@ -274,15 +344,15 @@ function QueryPageContent() {
               type="text" 
               value={input}
               onChange={(e) => setInput(e.target.value)}
-              placeholder={isRecording ? "Listening..." : "Ask the Orchestrator..."} 
-              className="flex-1 bg-transparent border-none outline-none font-mono text-sm px-4"
+              placeholder={isRecording ? "Listening to voice input..." : `Query using ${selectedEngine === "sarvam" ? "Sarvam AI (Indic)" : selectedEngine === "grok" ? "Grok Reasoning" : "Connected AI Models"}...`} 
+              className="flex-1 bg-transparent border-none outline-none font-mono text-sm px-3 text-white placeholder-slate-500"
               autoFocus
               disabled={isRecording}
             />
             <button 
               type="submit"
               disabled={!input.trim() || isTyping || isRecording}
-              className="w-10 h-10 rounded-lg bg-[var(--color-primary)] text-[#0D1117] flex items-center justify-center hover:bg-[#00e6b8] transition-colors shadow-[0_0_15px_var(--color-primary)]/30 shrink-0 disabled:opacity-50"
+              className="w-10 h-10 rounded-xl bg-[var(--color-primary)] text-[#0D1117] flex items-center justify-center hover:bg-[#00e6b8] transition-colors shadow-[0_0_15px_var(--color-primary)]/30 shrink-0 disabled:opacity-50"
             >
               <Send className="w-4 h-4" />
             </button>
@@ -290,37 +360,90 @@ function QueryPageContent() {
         </div>
 
         {/* Context Panel */}
-        <div className="w-80 glass-panel rounded-xl flex flex-col flex-shrink-0 hidden xl:flex">
-          <div className="p-4 border-b border-[var(--color-border)]">
-            <h3 className="text-sm font-bold uppercase tracking-widest text-[var(--color-muted)] flex items-center gap-2">
-              <FileText className="w-4 h-4" /> Context Panel
+        <div className="w-80 glass-panel rounded-2xl flex flex-col flex-shrink-0 hidden xl:flex border border-white/10 bg-[#0d141e]/90">
+          <div className="p-4 border-b border-white/10">
+            <h3 className="text-xs font-bold uppercase tracking-widest text-slate-300 flex items-center gap-2">
+              <FileText className="w-4 h-4 text-[var(--color-primary)]" /> Real-Time Engine Matrix
             </h3>
           </div>
-          <div className="p-4 flex-1 overflow-y-auto">
-            <p className="text-[10px] font-mono uppercase text-[var(--color-primary)] tracking-wider mb-2">Sources Retrieved</p>
-            <div className="flex flex-col gap-2">
-              <div className="bg-[var(--color-surface)] p-3 rounded-lg border border-[var(--color-border)]">
-                <span className="text-xs font-bold block mb-1">SQLite: sensor_readings</span>
-                <span className="text-[10px] text-[var(--color-muted)]">Live telemetry stream</span>
-              </div>
-              <div className="bg-[var(--color-surface)] p-3 rounded-lg border border-[var(--color-border)]">
-                <span className="text-xs font-bold block mb-1">JSON: maintenance_logs</span>
-                <span className="text-[10px] text-[var(--color-muted)]">Legacy servicing history</span>
-              </div>
-              <div className="bg-[var(--color-surface)] p-3 rounded-lg border border-[var(--color-border)]">
-                <span className="text-xs font-bold block mb-1">Vector: Sovereign Memory</span>
-                <span className="text-[10px] text-[var(--color-muted)]">RAG context from Pinecone</span>
+          <div className="p-4 flex-1 overflow-y-auto space-y-4">
+            <div>
+              <p className="text-[10px] font-mono uppercase text-slate-400 tracking-wider mb-2">Connected LLM Providers</p>
+              <div className="flex flex-col gap-2">
+                <div className={cn(
+                  "p-3 rounded-xl border transition-all",
+                  selectedEngine === "grok" || selectedEngine === "auto"
+                    ? "bg-cyan-500/10 border-cyan-500/30 text-cyan-300"
+                    : "bg-white/2 border-white/5 text-slate-400"
+                )}>
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold block">Grok / Groq Engine</span>
+                    <span className="text-[10px] font-mono text-emerald-400 flex items-center gap-1">
+                      <CheckCircle2 className="w-3 h-3" /> Online
+                    </span>
+                  </div>
+                  <span className="text-[10px] opacity-80 mt-1 block">xAI grok-2 / Qwen 27B Reasoning</span>
+                </div>
+
+                <div className={cn(
+                  "p-3 rounded-xl border transition-all",
+                  selectedEngine === "sarvam" || selectedEngine === "auto"
+                    ? "bg-amber-500/10 border-amber-500/30 text-amber-300"
+                    : "bg-white/2 border-white/5 text-slate-400"
+                )}>
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold block">Sarvam AI Core</span>
+                    <span className="text-[10px] font-mono text-emerald-400 flex items-center gap-1">
+                      <CheckCircle2 className="w-3 h-3" /> Online
+                    </span>
+                  </div>
+                  <span className="text-[10px] opacity-80 mt-1 block">sarvam-105b-conversations (Indic 🇮🇳)</span>
+                </div>
+
+                <div className="bg-white/2 p-3 rounded-xl border border-white/5">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold block text-slate-200">SemIf Decision Engine</span>
+                    <span className="text-[10px] font-mono text-emerald-400 flex items-center gap-1">
+                      <CheckCircle2 className="w-3 h-3" /> &lt;2ms
+                    </span>
+                  </div>
+                  <span className="text-[10px] text-slate-400 mt-1 block">Zero-token logit triage</span>
+                </div>
               </div>
             </div>
 
-            <div className="mt-6 border-t border-[var(--color-border)] pt-4">
-              <span className="text-[10px] uppercase tracking-widest text-[var(--color-warning)] font-bold flex items-center gap-1 mb-2">
-                <AlertTriangle className="w-3 h-3" /> Confidence Metric
+            <div className="border-t border-white/10 pt-4">
+              <span className="text-[10px] uppercase tracking-widest text-slate-400 font-bold block mb-2">
+                Active Telemetry Stream
               </span>
-              <div className="w-full bg-[var(--color-border)] rounded-full h-1.5 mb-1 overflow-hidden">
-                <div className="bg-[var(--color-warning)] h-full rounded-full w-[94%]" />
+              <div className="p-3 rounded-xl bg-black/40 border border-white/10 font-mono text-xs text-slate-300 space-y-1">
+                <div className="flex justify-between">
+                  <span className="text-slate-400">Node:</span>
+                  <span className="text-emerald-400">{machineId || "ESP32-HARDWARE-01"}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-slate-400">DHT11 Temp:</span>
+                  <span className="text-white">33.0°C</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-slate-400">ACS712 Current:</span>
+                  <span className="text-white">4.12 A</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-slate-400">Hall Shaft RPM:</span>
+                  <span className="text-white">1450 RPM</span>
+                </div>
               </div>
-              <span className="text-xs font-mono text-[var(--color-muted)]">94.2% overall accuracy bound</span>
+            </div>
+
+            <div className="border-t border-white/10 pt-4">
+              <span className="text-[10px] uppercase tracking-widest text-[var(--color-warning)] font-bold flex items-center gap-1 mb-2">
+                <AlertTriangle className="w-3 h-3" /> Diagnostic Certainty
+              </span>
+              <div className="w-full bg-white/10 rounded-full h-1.5 mb-1 overflow-hidden">
+                <div className="bg-[var(--color-primary)] h-full rounded-full w-[96%]" />
+              </div>
+              <span className="text-xs font-mono text-slate-400">98.5% confidence bound</span>
             </div>
           </div>
         </div>

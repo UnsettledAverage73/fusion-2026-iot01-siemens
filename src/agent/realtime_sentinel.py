@@ -122,7 +122,7 @@ class RealTimeSentinel:
             "alerts": [a.get("reason", "") for a in health.get("alerts", [])]
         }
 
-    def inspect_fleet(self, target_machine_id: str = "GLOBAL") -> Dict[str, Any]:
+    def inspect_fleet(self, target_machine_id: str = "GLOBAL", dispatch_alerts: bool = True) -> Dict[str, Any]:
         """
         Comprehensive Real-Time Fleet Sentinel Scan:
         Scans Hardware, Dataset 1, and Dataset 2 simultaneously.
@@ -165,7 +165,8 @@ class RealTimeSentinel:
             primary_triage = sorted_by_risk[0]
 
         # Check if critical alert dispatch to Slack is required
-        self._check_and_dispatch_slack(fleet_summary)
+        if dispatch_alerts:
+            self._check_and_dispatch_slack(fleet_summary)
 
         return {
             "fleet_summary": fleet_summary,

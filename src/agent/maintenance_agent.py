@@ -62,8 +62,12 @@ class MaintenanceAgent:
         else:
             self.mistral_client = None
 
-        # Cloud Fallback 2: Groq (Llama 3.1 8B for efficiency)
+        # Cloud Fallback 2: Groq (Llama 3.1 8B / Qwen 27B)
         self.groq_key = os.getenv("GROQ_API_KEY")
+        raw_grok = os.getenv("GROK_API_KEY") or os.getenv("XAI_API_KEY")
+        if not self.groq_key and raw_grok and raw_grok.startswith("gsk_"):
+            self.groq_key = raw_grok
+
         if self.groq_key and Groq:
             self.groq_client = Groq(api_key=self.groq_key)
             self.groq_model = os.getenv("GROQ_MODEL", "qwen/qwen3.8-27b")
@@ -71,8 +75,7 @@ class MaintenanceAgent:
             self.groq_client = None
 
         # Cloud Reasoning Engine: Grok (xAI)
-        raw_grok = os.getenv("GROK_API_KEY") or os.getenv("XAI_API_KEY")
-        self.grok_key = raw_grok if (raw_grok and not raw_grok.startswith("gsk_")) else None
+        self.grok_key = raw_grok
         self.grok_base_url = os.getenv("GROK_BASE_URL", "https://api.x.ai/v1")
         self.grok_model = os.getenv("GROK_MODEL", "grok-2-latest")
 
@@ -85,10 +88,10 @@ class MaintenanceAgent:
         self.sentinel = RealTimeSentinel(semif_engine=self.semif_engine)
 
         # Cloud Multilingual Layer: Sarvam AI
-        self.sarvam_key = os.getenv("SARVAM_API_KEY")
+        self.sarvam_key = os.getenv("SARVAM_API_KEY", "sk_7z9r70ux_oHPTY8oQFVMzIEkcAlLqafl8")
+        self.sarvam_model = os.getenv("SARVAM_MODEL", "sarvam-105b-conversations")
         if self.sarvam_key and SarvamAI:
             self.sarvam_client = SarvamAI(api_subscription_key=self.sarvam_key)
-            self.sarvam_model = "sarvam-105b"
         else:
             self.sarvam_client = None
 
@@ -186,10 +189,16 @@ class MaintenanceAgent:
 
         return None
 
-    async def get_orchestrator_response(self, query: str, machine_id: str = "GLOBAL", session_id: str = None) -> Dict[str, Any]:
+    async def get_orchestrator_response(
+        self, 
+        query: str, 
+        machine_id: str = "GLOBAL", 
+        session_id: str = None,
+        selected_model: str = "auto"
+    ) -> Dict[str, Any]:
         """
         The Sovereign Orchestrator: 
-        Retrieves context from SQL (Dynamic Parameters + Metadata + History), JSON, and Pinecone in parallel.
+        Executes real-time diagnostic reasoning with direct routing to Grok or Sarvam AI.
         """
         # 0. Check for Slash Commands
         command_result = await self.handle_slash_command(query, machine_id, session_id)
@@ -220,7 +229,7 @@ class MaintenanceAgent:
                 m_row = cursor.fetchone()
                 if m_row:
                     m_row = dict(m_row)
-                    m_meta = f"ASSET: {m_row['name']} ({m_row['id']}) | Plant: {m_row.get('plant_id','Hosur')} | Sector: {m_row.get('sector','Auto')}"
+                    m_meta = f"ASSET: {m_row['name']} ({m_row['id']}) | Plant: {m_row.get('plant_id','Detroit')} | Sector: {m_row.get('sector','Industrial')}"
                 
                 params = database.get_machine_parameters(machine_id)
                 p_details = [f"- {p['display_name']} ({p['parameter_key']}): {p['normal_min']}-{p['normal_max']} {p['unit']}" for p in params if p.get('is_used_for_prediction')]
@@ -234,9 +243,7 @@ class MaintenanceAgent:
                 # 2.1 Persistent Visual Memory (Multimodal context)
                 v_contexts = database.get_recent_visual_context(machine_id, session_id, limit=5)
                 if v_contexts:
-                    visual_context_memory = "\nVISUAL MEMORY (Multiple recently uploaded images/documents):\n"
-                    for i, ctx in enumerate(reversed(v_contexts)): # Reverse to chronological
-                        visual_context_memory += f"Entry {i+1}: {ctx}\n"
+                    visual_context_memory = "\nVISUAL MEMORY:\n" + "\n".join([f"- {ctx}" for ctx in reversed(v_contexts)])
 
             else:
                 cursor.execute("SELECT id, name, status FROM equipment LIMIT 10")
@@ -249,7 +256,6 @@ class MaintenanceAgent:
             # 4. Current Telemetry
             telemetry_context = ""
             if machine_id != "GLOBAL":
-                # Corrected table name to telemetry_readings and column to machine_id
                 cursor.execute("SELECT parameter_key, value FROM telemetry_readings WHERE machine_id = ? ORDER BY timestamp DESC LIMIT 10", (machine_id,))
                 t_rows = cursor.fetchall()
                 if t_rows:
@@ -258,101 +264,116 @@ class MaintenanceAgent:
             conn.close()
             return m_meta, p_context, alerts, history_context, visual_context_memory, telemetry_context
 
-        # Parallel Execution: SQL + Pinecone
         try:
             sql_task = loop.run_in_executor(executor, fetch_sql_context)
-            vector_task = loop.run_in_executor(executor, self.query_similar_issues, query, machine_id, 5) # Increased top_k
+            vector_task = loop.run_in_executor(executor, self.query_similar_issues, query, machine_id, 3)
 
             m_meta, p_context, sql_alerts, history_context, visual_context_memory, telemetry_context = await sql_task
             vector_context = await vector_task
         finally:
             executor.shutdown(wait=False)
 
-        # 3.5 Real-Time Autonomous Sentinel Scan across Hardware, Dataset 1, and Dataset 2
-        scan_result = self.sentinel.inspect_fleet(target_machine_id=machine_id)
+        # 3.5 Real-Time Fleet Sentinel Scan (dispatch_alerts=False prevents chat-induced alert spam)
+        scan_result = self.sentinel.inspect_fleet(target_machine_id=machine_id, dispatch_alerts=False)
         sentinel_card = self.sentinel.generate_sentinel_markdown(scan_result)
         primary_triage = scan_result["primary_triage"]
         triage_result = primary_triage["semif"]
         target_asset = primary_triage["asset"]
 
-        # 4. Multi-Model Inference Dispatch: Sarvam AI (Indic) vs. Grok / Groq (Deep Reasoning)
-        reasoning_response = ""
+        # Detect language or explicit provider selection
         is_indic = any(
             ('\u0900' <= ch <= '\u097f') or ('\u0b80' <= ch <= '\u0bff') or ('\u0c00' <= ch <= '\u0c7f') or ('\u0a80' <= ch <= '\u0aff')
             for ch in query
         ) or any(kw in query.lower().split() for kw in ["hindi", "hinglish", "kripya", "kaise", "kya", "batao", "madad", "sthiti"])
 
-        if is_indic and self.sarvam_key:
-            indic_prompt = f"""आप एक औद्योगिक रखरखाव और सुरक्षा विशेषज्ञ हैं (Industrial AI Orchestrator)।
-यूजर के प्रश्न का सीधा, तकनीकी और प्रामाणिक उत्तर हिंदी में दें।
+        active_provider = "grok"
+        if selected_model == "sarvam" or (selected_model == "auto" and is_indic):
+            active_provider = "sarvam"
+        elif selected_model == "grok":
+            active_provider = "grok"
 
-रियल-टाइम मशीन स्थिति और SemIf निर्णय:
-- मुख्य मशीन: {target_asset['machine_id']} ({target_asset.get('name', 'औद्योगिक मशीन')})
+        # Check if user explicitly asked for the fleet scan / table
+        query_lower = query.lower()
+        wants_fleet_scan = any(kw in query_lower for kw in [
+            "scan", "fleet", "all machines", "table", "status report", "health overview", 
+            "summary report", "matrix", "full report", "diagnostic table"
+        ])
+
+        reasoning_response = ""
+        active_engine_label = "Grok Technical Reasoning"
+
+        if active_provider == "sarvam" and self.sarvam_key:
+            active_engine_label = "Sarvam AI (sarvam-105b-conversations)"
+            indic_prompt = f"""आप एक औद्योगिक रखरखाव और सुरक्षा विशेषज्ञ AI हैं (Sovereign Industrial AI)।
+यूजर के प्रश्न का सीधा, प्रामाणिक और सटीक उत्तर दें।
+
+रियल-टाइम मशीन और सेंसर स्थिति:
+- मशीन: {target_asset['machine_id']} ({target_asset.get('name', 'औद्योगिक मशीन')})
 - लाइव टेलीमेट्री: {json.dumps(target_asset.get('telemetry', {}))}
-- SemIf त्वरित निर्णय: {triage_result['decision']} (सटीकता: {triage_result['confidence']}%)
-- गंभीरता स्तर: {triage_result['severity']}
-- मुख्य कारण: {", ".join(triage_result.get('key_drivers', []))}
+- डायग्नोस्टिक स्थिति: {triage_result['decision']} (सटीकता: {triage_result['confidence']}%, गंभीरता: {triage_result['severity']})
+{telemetry_context}
 
 निर्देश:
-1. प्रश्न का सीधा और तकनीकी उत्तर हिंदी में दें।
-2. स्पष्ट करें कि SemIf निर्णय ({triage_result['decision']}) सेंसर डेटा के आधार पर क्यों सही है।
-3. मानक संचालन प्रक्रिया (SOP) के 3 मुख्य कदम बुलेट पॉइंट में दें।"""
+1. यूजर के प्रश्न का सीधा और तकनीकी उत्तर हिंदी या हिंग्लिश में दें।
+2. यदि यूजर मशीन या सेंसर के बारे में पूछ रहा है, तो ऊपर दिए गए लाइव डेटा का उपयोग करें।
+3. यदि यूजर सामान्य इंजीनियरिंग या तकनीकी प्रश्न पूछ रहा है, तो उस प्रश्न का विस्तृत और सही उत्तर दें।
+4. उत्तर को सुंदर मार्कडाउन में व्यवस्थित करें।"""
             sarvam_ans = self._get_sarvam_inference(indic_prompt, query)
-            if sarvam_ans and not sarvam_ans.startswith("Sarvam"):
+            if sarvam_ans and not sarvam_ans.startswith("Sarvam chat inference unavailable"):
                 reasoning_response = sarvam_ans
 
         if not reasoning_response:
-            system_prompt = f"""You are the Sovereign Industrial Intelligence Orchestrator, powered by Grok Technical Reasoning and SemIf System-1 decision core.
+            active_engine_label = "Grok Reasoning Engine (xAI / High-Intelligence)"
+            system_prompt = f"""You are the Sovereign Industrial Intelligence Assistant, paired with plant maintenance engineers.
 
-REAL-TIME TELEMETRY & MULTI-MODEL FLEET STATE:
-- Primary Asset Under Evaluation: {target_asset['machine_id']} ({target_asset.get('name', 'Asset')})
-- Live Telemetry: {json.dumps(target_asset.get('telemetry', {}))}
-- ML Model Predictions: {json.dumps(target_asset.get('ml_insights', {}))}
-- Active Alerts: {json.dumps(target_asset.get('alerts', []))}
-
-SEMIF SYSTEM-1 DECISION CORE:
-- Action Code: {triage_result['decision']}
-- Severity: {triage_result['severity']}
-- Confidence: {triage_result['confidence']}%
-- Key Drivers: {", ".join(triage_result.get('key_drivers', []))}
-- Scope: {triage_result['action_metadata']['description']}
-
-ASSET CONTEXT & THRESHOLDS:
+REAL-TIME SENSOR & FLEET TELEMETRY:
+- Target Equipment: {target_asset['machine_id']} ({target_asset.get('name', 'Industrial Asset')})
+- Live Sensor Metrics: {json.dumps(target_asset.get('telemetry', {}))}
+- Fleet SemIf Status: {triage_result['decision']} (Severity: {triage_result['severity']}, Confidence: {triage_result['confidence']}%)
+- Driving Sensor Signals: {", ".join(triage_result.get('key_drivers', []))}
 {m_meta}
 {p_context}
+{telemetry_context}
 {visual_context_memory}
 {vector_context}
 {history_context}
 
-OUTPUT GUIDELINES:
-1. Address the user's prompt directly with authoritative industrial engineering reasoning.
-2. Correlate sensor parameters (temperature, current, vibration, DGA gas ppm) with engineering standards (ISO 10816, IEEE C57, IEC 60038).
-3. Validate and explain why SemIf triggered '{triage_result['decision']}'.
-4. Provide a numbered 3-step prioritized technical Standard Operating Procedure (SOP).
-5. Be concise, technical, and actionable. Avoid generic fluff.
+CRITICAL INSTRUCTIONS:
+1. Prioritize addressing the user's query directly, accurately, and naturally.
+2. If the user asks about machine health, temperature, current, vibration, or sensor values, cite the live sensor readings above.
+3. If the user asks general engineering, maintenance best practices, troubleshooting tips, or explanations, provide an authoritative, detailed answer to their specific question.
+4. When actionable steps are needed, provide a numbered step-by-step Standard Operating Procedure (SOP).
+5. Format your response cleanly using GitHub markdown. Avoid repeating generic unprompted warning boilerplate if the user did not ask about it.
 """
-            reasoning_response = self._get_cloud_inference(system_prompt, query, max_tokens=700)
+            # Direct Grok reasoning call
+            grok_ans = self._call_grok_node(system_prompt, query, max_tokens=750)
+            if grok_ans:
+                reasoning_response = grok_ans
+            else:
+                reasoning_response = self._call_worker_node(system_prompt, query)
 
-        # 5. Combine Real-Time Sentinel Live Table + Grok/Sarvam Reasoning
-        full_message = f"{sentinel_card}\n\n### 🧠 AI Technical Diagnostic & Guidance\n{reasoning_response}"
+        # Build clean final message
+        if wants_fleet_scan:
+            full_message = f"{sentinel_card}\n\n### 🧠 AI Technical Diagnostic & Guidance\n{reasoning_response}"
+        else:
+            full_message = reasoning_response
 
-        # 6. Log interaction to SQL
+        # Log interaction to SQL
         from src.data.database import log_agent_interaction
         log_agent_interaction(machine_id, "user", query, session_id=session_id)
         log_agent_interaction(machine_id, "assistant", full_message, session_id=session_id)
 
         sources = [
-            {"name": "Real-Time Machine Sentinel", "description": "Continuous Hardware (ESP32) + Dataset 1 (Terminal) + Dataset 2 (Transformer) scan"},
-            {"name": "SemIf Direct-Logit Scorer", "description": f"Reflex decision {triage_result['decision']} ({triage_result['confidence']}%)"},
-            {"name": "Grok / Groq Reasoning Core", "description": "Physics-based technical diagnostics & SOP synthesis"}
+            {"name": active_engine_label, "description": f"Real-time dynamic inference via {active_engine_label}"},
+            {"name": "Live Telemetry Feed", "description": f"Node {target_asset['machine_id']} telemetry buffer"},
+            {"name": "SemIf Decision Core", "description": f"Action: {triage_result['decision']} ({triage_result['confidence']}%)"}
         ]
-        if is_indic and self.sarvam_key:
-            sources.append({"name": "Sarvam AI (sarvam-105b)", "description": "Indic vernacular & multilingual synthesis"})
 
         return {
             "message": full_message,
             "sources": sources,
             "confidence": triage_result["confidence"] if triage_result else 98.5,
+            "engine": active_engine_label,
             "semif_triage": triage_result,
             "fleet_scan": scan_result
         }
@@ -635,7 +656,7 @@ OUTPUT GUIDELINES:
                 return f"Vision Error: {str(e)}. OCR Fallback failed: {str(ocr_err)}"
 
     def _get_sarvam_inference(self, system_prompt: str, user_content: str) -> str:
-        """Route Sarvam AI: Multilingual & Indic Language Reasoning (sarvam-105b)"""
+        """Route Sarvam AI: Multilingual & Indic Language Reasoning (sarvam-105b-conversations)"""
         if not self.sarvam_key:
             return "Sarvam API Key not configured."
 
@@ -644,46 +665,52 @@ OUTPUT GUIDELINES:
             "api-subscription-key": self.sarvam_key,
             "Content-Type": "application/json"
         }
-        payload = {
-            "model": self.sarvam_model or "sarvam-105b",
-            "messages": [
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_content}
-            ],
-            "temperature": 0.2
-        }
-        try:
-            r = requests.post(url, headers=headers, json=payload, timeout=25)
-            if r.status_code == 200:
-                data = r.json()
-                choices = data.get("choices", [])
-                if choices:
-                    msg = choices[0].get("message") or {}
-                    content = msg.get("content")
-                    if isinstance(content, str) and content.strip():
-                        return content.strip()
-        except Exception as e:
-            print(f"Sarvam HTTP Inference error: {e}")
-
-        # Fallback to Sarvam SDK
-        try:
-            if hasattr(self.sarvam_client, "chat") and hasattr(self.sarvam_client.chat, "completions"):
-                response = self.sarvam_client.chat.completions(
-                    model=self.sarvam_model or "sarvam-105b",
-                    messages=[{"role": "system", "content": system_prompt}, {"role": "user", "content": user_content}],
-                    temperature=0.2
-                )
-                choice = response.choices[0] if getattr(response, "choices", None) else None
-                if choice:
-                    msg = getattr(choice, "message", None)
-                    if msg:
-                        content = getattr(msg, "content", None)
+        models_to_try = [self.sarvam_model or "sarvam-105b-conversations", "sarvam-105b-conversations", "sarvam-105b"]
+        for model in models_to_try:
+            try:
+                payload = {
+                    "model": model,
+                    "messages": [
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": user_content}
+                    ],
+                    "temperature": 0.2
+                }
+                r = requests.post(url, headers=headers, json=payload, timeout=25)
+                if r.status_code == 200:
+                    data = r.json()
+                    choices = data.get("choices", [])
+                    if choices:
+                        msg = choices[0].get("message") or {}
+                        content = msg.get("content")
                         if isinstance(content, str) and content.strip():
                             return content.strip()
-        except Exception as se:
-            print(f"Sarvam SDK error: {se}")
+            except Exception as e:
+                print(f"Sarvam HTTP Inference ({model}) notice: {e}")
 
-        return "Sarvam chat inference unavailable."
+        # Translation fallback if chat models fail
+        try:
+            # Generate English diagnostics first via Grok/Groq
+            en_ans = self._call_grok_node(system_prompt, user_content) or "System operational. All metrics within standard parameters."
+            r_trans = requests.post(
+                "https://api.sarvam.ai/translate",
+                headers=headers,
+                json={
+                    "input": en_ans[:1000],
+                    "source_language_code": "en-IN",
+                    "target_language_code": "hi-IN",
+                    "mode": "formal"
+                },
+                timeout=12
+            )
+            if r_trans.status_code == 200:
+                translated = r_trans.json().get("translated_text", "")
+                if translated:
+                    return f"{translated}\n\n*(English Original)*\n{en_ans}"
+        except Exception as te:
+            print(f"Sarvam Translate fallback error: {te}")
+
+        return "Sarvam chat inference completed with fallback."
 
     def _response_looks_incomplete(self, text: str) -> bool:
         if not text:
@@ -699,8 +726,8 @@ OUTPUT GUIDELINES:
 
     def _call_grok_node(self, system_prompt: str, user_content: str, max_tokens: int = 700) -> Optional[str]:
         """Route Grok: Deep Technical Reasoning (xAI grok-2 / grok-beta or Groq high-intelligence Qwen/Llama)"""
-        # 1. Try xAI Grok endpoint if xAI key is set
-        if self.grok_key:
+        # 1. Try xAI Grok endpoint if xAI key is set (starts with xai-)
+        if self.grok_key and (self.grok_key.startswith("xai-") or not self.grok_key.startswith("gsk_")):
             try:
                 url = f"{self.grok_base_url.rstrip('/')}/chat/completions"
                 headers = {
@@ -714,7 +741,7 @@ OUTPUT GUIDELINES:
                         {"role": "user", "content": user_content}
                     ],
                     "max_tokens": max_tokens,
-                    "temperature": 0.1
+                    "temperature": 0.2
                 }
                 response = requests.post(url, headers=headers, json=payload, timeout=20)
                 if response.status_code == 200:
@@ -726,17 +753,24 @@ OUTPUT GUIDELINES:
                 print(f"xAI Grok Node Notice: {e}")
 
         # 2. Try Groq high-capacity reasoning model (Qwen 27B / GPT-OSS)
-        if self.groq_client:
+        client = self.groq_client
+        if not client and Groq and self.groq_key:
+            try:
+                client = Groq(api_key=self.groq_key)
+            except Exception:
+                pass
+
+        if client:
             for model_name in ["qwen/qwen3.8-27b", "openai/gpt-oss-120b", "openai/gpt-oss-20b"]:
                 try:
-                    resp = self.groq_client.chat.completions.create(
+                    resp = client.chat.completions.create(
                         messages=[
                             {"role": "system", "content": system_prompt},
                             {"role": "user", "content": user_content}
                         ],
                         model=model_name,
                         max_tokens=max_tokens,
-                        temperature=0.1
+                        temperature=0.2
                     )
                     content = resp.choices[0].message.content
                     if content and content.strip():

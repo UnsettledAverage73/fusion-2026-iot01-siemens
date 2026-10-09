@@ -61,6 +61,7 @@ class ChatRequest(BaseModel):
     machineName: str
     equipmentData: Optional[dict] = None
     sessionId: Optional[str] = None
+    selectedModel: Optional[str] = "auto"
 
 class TriageRequest(BaseModel):
     machine_id: str
@@ -554,7 +555,8 @@ async def chat_with_agent(req: ChatRequest):
         result = await agent.get_orchestrator_response(
             query=context_prefix + user_msg, 
             machine_id=req.machineId,
-            session_id=req.sessionId
+            session_id=req.sessionId,
+            selected_model=req.selectedModel or "auto"
         )
         response_data = {**result, "machineId": req.machineId, "sessionId": req.sessionId}
         return {**response_data, "cached": False}
