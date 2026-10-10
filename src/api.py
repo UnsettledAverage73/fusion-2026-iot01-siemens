@@ -520,34 +520,7 @@ async def login_with_google(req: GoogleLoginRequest):
 
 @app.post("/api/chat")
 async def chat_with_agent(req: ChatRequest):
-    """Orchestrates machine-specific reasoning with AI caching and advanced orchestration."""
-    # 0. Zero-Latency Initial Analysis Check
-    # If this is the auto-triggered summary request, check for pre-computed content
-    INITIAL_SUMMARY_TRIGGER = "Generate a technical health summary for this asset. Be concise, highlight critical breaches, and provide a numbered technical prescription."
-    user_msg = req.messages[-1]["content"] if req.messages else ""
-    
-    if user_msg == INITIAL_SUMMARY_TRIGGER and req.machineId != "GLOBAL":
-        try:
-            pre_computed_key = f"ai_latest_summary:{req.machineId}"
-            pre_computed_data = await r.get(pre_computed_key)
-            if pre_computed_data:
-                summary = json.loads(pre_computed_data)
-                # Ensure it's not too stale (e.g., last 1 hour)
-                ts = datetime.fromisoformat(summary["timestamp"])
-                if datetime.now() - ts < timedelta(hours=1):
-                    return {
-                        "message": summary["message"],
-                        "sources": summary.get("sources", []),
-                        "confidence": summary.get("confidence", 98.5),
-                        "machineId": req.machineId,
-                        "sessionId": req.sessionId,
-                        "cached": True,
-                        "pre_computed": True
-                    }
-        except Exception as e:
-            print(f"Pre-computed cache retrieval error: {e}")
-
-    # 1. Advanced Real-Time Inference with Autonomous Fleet Sentinel Scan
+    """Dynamic Real-Time AI Diagnostics: Evaluates live physical telemetry and RAG evidence."""
     user_msg = req.messages[-1]["content"] if req.messages else ""
     context_prefix = f"Analyzing Asset: {req.machineName} ({req.machineId}). Current State: {json.dumps(req.equipmentData)}. " if req.machineId != "GLOBAL" and req.equipmentData else ""
     
@@ -568,8 +541,9 @@ async def chat_with_agent(req: ChatRequest):
 @app.post("/api/agent/triage")
 async def triage_asset(req: TriageRequest):
     """
-    Tier-1 SemIf Direct-Logit System-1 Fast Triage.
-    Returns immediate classified action, confidence, and action probability distribution in <60ms.
+    Multi-Model RAG Health Triage:
+    Evaluates real physical hardware, Dataset 1 Terminal, and Dataset 2 Transformer models
+    using engineering physics, ML fault models, and ISO standards.
     """
     try:
         triage = agent.fast_triage(req.machine_id, context=req.context)
@@ -584,10 +558,10 @@ async def triage_asset(req: TriageRequest):
 @app.post("/api/agent/orchestrate")
 async def orchestrate_multi_model(req: OrchestrationRequest):
     """
-    3-Tier Multi-Model Orchestration Triad:
-    Tier 1: SemIf Direct-Logit (Groq/Local)
-    Tier 2: System-2 Diagnostic Reasoning (Grok/Mistral/Groq)
-    Tier 3: Indic Multilingual & Voice Synthesis (Sarvam AI)
+    3-Tier Multi-Model Orchestration Triad (Grok + Sarvam RAG):
+    Tier 1: Multi-Source Telemetry & Health Evaluation (Physics & ML Ensemble)
+    Tier 2: Grok Deep Technical Reasoning & SOP Synthesis (System 2)
+    Tier 3: Sarvam AI Indic Multilingual & Voice Synthesis (STT/TTS)
     """
     try:
         result = agent.orchestrate_triad(
@@ -608,7 +582,7 @@ async def orchestrate_multi_model(req: OrchestrationRequest):
 async def get_sentinel_fleet_scan(machine_id: str = "GLOBAL"):
     """
     Returns real-time fleet diagnostic scan across Physical Hardware (ESP32),
-    Dataset 1 Terminal (CB-01), and Dataset 2 Power Transformer (315 MVA) with SemIf decisions.
+    Dataset 1 Terminal (CB-01), and Dataset 2 Power Transformer (315 MVA) via RAG Sentinel.
     """
     try:
         scan = agent.sentinel.inspect_fleet(target_machine_id=machine_id)

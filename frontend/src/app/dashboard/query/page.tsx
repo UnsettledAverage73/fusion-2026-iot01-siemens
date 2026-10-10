@@ -402,12 +402,12 @@ function QueryPageContent() {
 
                 <div className="bg-white/2 p-3 rounded-xl border border-white/5">
                   <div className="flex items-center justify-between">
-                    <span className="text-xs font-bold block text-slate-200">SemIf Decision Engine</span>
+                    <span className="text-xs font-bold block text-slate-200">Industrial RAG Knowledge</span>
                     <span className="text-[10px] font-mono text-emerald-400 flex items-center gap-1">
-                      <CheckCircle2 className="w-3 h-3" /> &lt;2ms
+                      <CheckCircle2 className="w-3 h-3" /> Active
                     </span>
                   </div>
-                  <span className="text-[10px] text-slate-400 mt-1 block">Zero-token logit triage</span>
+                  <span className="text-[10px] text-slate-400 mt-1 block">Manuals, logs & sensor fusion</span>
                 </div>
               </div>
             </div>

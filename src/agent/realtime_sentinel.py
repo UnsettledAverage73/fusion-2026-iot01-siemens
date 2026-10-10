@@ -1,13 +1,14 @@
 """
 Real-Time Machine Sentinel & Multi-Model Fleet Monitor.
+Powered by Industrial RAG Engine (Grok + Sarvam AI).
 
-Operates as the autonomous real-time sentinel for the Sovereign Predictive Maintenance system:
 Inspects live telemetry and runs physics & ML models across all three machine sources:
 1. Physical Hardware: ESP32-HARDWARE-01 (DHT11 Temp/Humidity, ACS712 Current, Hall RPM, Button)
 2. Dataset 1: Smart Grid Terminal (SGT-TERM-01, terminal_fault_model.joblib)
 3. Dataset 2: Power Transformer DGA (XFMR-315MVA-01, transformer_health_model.joblib)
 
-Feeds aggregated telemetry into SemIfEngine for typed System-1 decision scoring.
+Evaluates machine health using ISO 10816, IEEE C57.104, ML ensemble fault models,
+and safety interlocks via IndustrialRAGEngine.
 Dispatches critical alerts to Slack (#all-average) when safety thresholds are breached.
 """
 
@@ -15,7 +16,7 @@ import os
 import json
 import time
 from typing import Dict, Any, List, Optional
-from src.agent.semif_engine import SemIfEngine
+from src.agent.rag_engine import IndustrialRAGEngine
 from src.data.database import get_machine_health_summary
 from src.services.alerts import create_ai_alert
 from src.services.substation_service import predict_terminal, predict_transformer, PRESET_SCENARIOS
@@ -23,8 +24,8 @@ from src.notifications.slack import send_slack_alert
 
 
 class RealTimeSentinel:
-    def __init__(self, semif_engine: Optional[SemIfEngine] = None):
-        self.semif_engine = semif_engine or SemIfEngine()
+    def __init__(self, rag_engine: Optional[IndustrialRAGEngine] = None, **kwargs):
+        self.rag_engine = rag_engine or IndustrialRAGEngine()
         self._last_slack_alert_time: Dict[str, float] = {}
 
     def get_hardware_telemetry(self) -> Dict[str, Any]:
@@ -125,22 +126,36 @@ class RealTimeSentinel:
     def inspect_fleet(self, target_machine_id: str = "GLOBAL", dispatch_alerts: bool = True) -> Dict[str, Any]:
         """
         Comprehensive Real-Time Fleet Sentinel Scan:
-        Scans Hardware, Dataset 1, and Dataset 2 simultaneously.
-        Evaluates SemIf System-1 decision for each asset and aggregate fleet.
+        Scans Hardware, Dataset 1, and Dataset 2 simultaneously using RAG physics & standards evaluation.
         """
         hw_state = self.get_hardware_telemetry()
         d1_state = self.get_dataset1_terminal_state()
         d2_state = self.get_dataset2_transformer_state()
 
-        # Run SemIf Decision Scorer on each
-        hw_decision = self.semif_engine.evaluate_decision(hw_state)
-        d1_decision = self.semif_engine.evaluate_decision(d1_state)
-        d2_decision = self.semif_engine.evaluate_decision(d2_state)
+        # Multi-Asset Health Evaluation
+        hw_eval = self.rag_engine.evaluate_asset_health(hw_state)
+        d1_eval = self.rag_engine.evaluate_asset_health(d1_state)
+        d2_eval = self.rag_engine.evaluate_asset_health(d2_state)
+
+        def _format_decision(ev):
+            return {
+                "decision": ev["action"],
+                "severity": ev["severity"],
+                "confidence": ev["urgency_score"],
+                "key_drivers": ev["key_drivers"],
+                "action_metadata": {"description": ev["description"]},
+                "anomalies": ev["anomalies"],
+                "scoring_source": "RAG Physics & ML Standards Engine"
+            }
+
+        hw_decision = _format_decision(hw_eval)
+        d1_decision = _format_decision(d1_eval)
+        d2_decision = _format_decision(d2_eval)
 
         fleet_summary = [
-            {"asset": hw_state, "semif": hw_decision},
-            {"asset": d1_state, "semif": d1_decision},
-            {"asset": d2_state, "semif": d2_decision}
+            {"asset": hw_state, "health": hw_decision, "semif": hw_decision},
+            {"asset": d1_state, "health": d1_decision, "semif": d1_decision},
+            {"asset": d2_state, "health": d2_decision, "semif": d2_decision}
         ]
 
         # Determine target asset focus
@@ -152,13 +167,13 @@ class RealTimeSentinel:
                     break
 
         if not primary_triage:
-            # Pick highest severity asset across fleet (CRITICAL > HIGH > MEDIUM > LOW > INFO)
-            severity_rank = {"CRITICAL": 5, "HIGH": 4, "MEDIUM": 3, "LOW": 2, "INFO": 1}
+            # Pick highest severity asset across fleet (CRITICAL > WARNING > NOMINAL)
+            severity_rank = {"CRITICAL": 3, "WARNING": 2, "NOMINAL": 1}
             sorted_by_risk = sorted(
                 fleet_summary,
                 key=lambda x: (
-                    severity_rank.get(x["semif"]["severity"], 0),
-                    x["semif"]["confidence"]
+                    severity_rank.get(x["health"]["severity"], 0),
+                    x["health"]["confidence"]
                 ),
                 reverse=True
             )
@@ -181,15 +196,15 @@ class RealTimeSentinel:
         now = time.time()
         for item in fleet_summary:
             asset = item["asset"]
-            semif = item["semif"]
+            h = item["health"]
             mid = asset["machine_id"]
-            if semif.get("is_emergency") or semif.get("severity") == "CRITICAL":
+            if h.get("severity") == "CRITICAL":
                 last_time = self._last_slack_alert_time.get(mid, 0.0)
                 # 60s cooldown per machine to prevent spam
                 if now - last_time > 60.0:
                     self._last_slack_alert_time[mid] = now
-                    reason = f"SemIf System-1 Action: {semif['decision']} ({semif['confidence']}% confidence). Drivers: {', '.join(semif.get('key_drivers', []))}"
-                    prescription = semif["action_metadata"].get("description", "Inspect asset immediately.")
+                    reason = f"Safety Breach: {h['decision']} ({h['confidence']}% urgency). Drivers: {', '.join(h.get('key_drivers', []))}"
+                    prescription = h["action_metadata"].get("description", "Inspect asset immediately.")
                     create_ai_alert(mid, "CRITICAL", reason, prescription)
                     send_slack_alert(
                         equipment_id=mid,
@@ -207,7 +222,7 @@ class RealTimeSentinel:
         d1 = scan_result["dataset1_terminal"]
         d2 = scan_result["dataset2_transformer"]
         prim = scan_result["primary_triage"]
-        semif = prim["semif"]
+        h = prim["health"]
         asset = prim["asset"]
 
         hw_tel = hw["state"]["telemetry"]
@@ -218,8 +233,8 @@ class RealTimeSentinel:
 
         btn_badge = "🔴 PRESSED (E-STOP)" if hw_tel.get("push_button") == "PRESSED" else "🟢 RELEASED (Healthy)"
 
-        card = f"""### 🛡️ Real-Time Machine Sentinel & Telemetry Scan
-| Monitored Domain | Asset ID | Primary Live Telemetry | ML / Health Status | SemIf Action |
+        card = f"""### 🛡️ Real-Time Machine Sentinel & Multi-Source RAG Scan
+| Monitored Domain | Asset ID | Primary Live Telemetry | ML / Health Status | Recommended Action |
 | :--- | :--- | :--- | :--- | :--- |
 | **Physical Hardware** | `{hw['state']['machine_id']}` | **Temp**: {hw_tel.get('temperature', 0):.1f}°C • **Current**: {hw_tel.get('current_draw', 0):.2f}A • **RPM**: {hw_tel.get('rpm', 0):.0f} • **Button**: {btn_badge} | Live Edge Stream (USB) | `{hw['decision']['decision']}` ({hw['decision']['confidence']}%) |
 | **Dataset 1: Terminal** | `{d1['state']['machine_id']}` | **Voltage**: {d1_tel.get('voltage', 0):.1f}V • **Current**: {d1_tel.get('current', 0):.1f}A • **Vib**: {d1_tel.get('vibration', 0):.2f} mm/s | **Fault Prob**: {d1_ml.get('fault_probability', 0)*100:.1f}% • **Health**: {d1_ml.get('health_score', 100):.1f}/100 | `{d1['decision']['decision']}` ({d1['decision']['confidence']}%) |
@@ -227,19 +242,13 @@ class RealTimeSentinel:
 
 ---
 
-### ⚡ SemIf System-1 Operational Decision Matrix
+### ⚙️ Multi-Source Engineering Diagnostics (Grok & Sarvam RAG)
 - **Target Asset Focus**: `{asset['machine_id']}` ({asset.get('name', 'Asset')})
-- **Immediate Recommended Action**: **`{semif['decision']}`**
-- **Action Severity**: **{semif['severity']}**
-- **Decision Confidence**: **{semif['confidence']}%**
-- **Scoring Source**: `{semif['scoring_source']}`
-- **Action Scope**: *{semif['action_metadata']['description']}*
+- **Recommended Action**: **`{h['decision']}`**
+- **Condition Severity**: **{h['severity']}**
+- **Action Urgency**: **{h['confidence']}%**
+- **Engineering Scope**: *{h['action_metadata']['description']}*
 - **Primary Driving Factors**:
-  {chr(10).join([f"  • {d}" for d in semif.get('key_drivers', ['Nominal parameter envelope'])])}
-
-**SemIf Action Probability Distribution**:
-```json
-{json.dumps(semif['probabilities'], indent=2)}
-```
+  {chr(10).join([f"  • {d}" for d in h.get('key_drivers', ['Nominal parameter envelope'])])}
 """
         return card

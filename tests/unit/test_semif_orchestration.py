@@ -1,122 +1,104 @@
 """
-Unit and integration tests for SemIf Direct-Logit Decision Scorer
-and Grok / Sarvam Model Orchestration.
+Unit and integration tests for Industrial RAG Engine (Grok + Sarvam AI).
+Validates multi-source context retrieval, physics & standards health evaluation,
+and multi-model orchestration.
 """
 
 import pytest
 from unittest.mock import MagicMock, patch
-from src.agent.semif_engine import SemIfEngine, softmax, DEFAULT_ACTIONS
+from src.agent.rag_engine import IndustrialRAGEngine
 from src.agent.maintenance_agent import MaintenanceAgent
 
 
-def test_softmax_function():
-    scores = {"A": 2.0, "B": 1.0, "C": 0.0}
-    probs = softmax(scores)
-    assert round(sum(probs.values()), 2) == 1.0
-    assert probs["A"] > probs["B"] > probs["C"]
+def test_rag_engine_initialization():
+    engine = IndustrialRAGEngine()
+    assert engine is not None
+    assert engine.sarvam_base_url == "https://api.sarvam.ai"
 
 
-def test_semif_local_heuristics_critical():
-    engine = SemIfEngine()
-    state_crit = {
-        "machine_id": "PUMP-01",
-        "telemetry": {"vibration_rms": 5.8, "temperature": 99.0},
-        "alerts": ["CRITICAL: Thermal breach"]
-    }
-    res = engine.evaluate_decision(state_crit)
-    assert res["decision"] == "EMERGENCY_SHUTDOWN"
-    assert res["severity"] == "CRITICAL"
-    assert res["confidence"] >= 90.0
-    assert res["is_emergency"] is True
+def test_rag_context_retrieval():
+    engine = IndustrialRAGEngine()
+    ctx = engine.retrieve_context("check bearing vibration and temperature", machine_id="ESP32-HARDWARE-01")
+    assert ctx["query"] == "check bearing vibration and temperature"
+    assert "retrieved_docs" in ctx
+    assert len(ctx["retrieved_docs"]) > 0
+    # ISO standards should be retrieved for vibration
+    sources = [d["source"] for d in ctx["retrieved_docs"]]
+    assert any("ISO 10816" in s or "Bearing" in s for s in sources)
 
 
-def test_semif_local_heuristics_vibration():
-    engine = SemIfEngine()
-    state_vib = {
-        "machine_id": "CNC-02",
-        "telemetry": {"vibration_rms": 3.9, "temperature": 60.0},
-        "alerts": []
-    }
-    res = engine.evaluate_decision(state_vib)
-    assert res["decision"] == "INSPECT_BEARING"
-    assert res["severity"] == "HIGH"
-    assert res["confidence"] > 50.0
-
-
-def test_semif_local_heuristics_normal():
-    engine = SemIfEngine()
-    state_norm = {
-        "machine_id": "FAN-01",
-        "telemetry": {"vibration_rms": 0.8, "temperature": 40.0},
-        "alerts": []
-    }
-    res = engine.evaluate_decision(state_norm)
-    assert res["decision"] == "NORMAL_MONITORING"
-    assert res["severity"] == "INFO"
-    assert res["confidence"] > 70.0
-
-
-def test_semif_with_groq_logprobs_mock():
-    engine = SemIfEngine(groq_api_key="mock_key")
-    
-    mock_token = MagicMock()
-    mock_token.token = "A"
-    mock_token.logprob = -0.05
-    
-    mock_token_b = MagicMock()
-    mock_token_b.token = "B"
-    mock_token_b.logprob = -3.5
-
-    mock_choice = MagicMock()
-    mock_content = MagicMock()
-    mock_content.top_logprobs = [mock_token, mock_token_b]
-    mock_choice.logprobs.content = [mock_content]
-    
-    mock_response = MagicMock()
-    mock_response.choices = [mock_choice]
-
-    mock_client = MagicMock()
-    mock_client.chat.completions.create.return_value = mock_response
-    engine.groq_client = mock_client
-
+def test_asset_health_evaluation_critical_temperature():
+    engine = IndustrialRAGEngine()
     state = {
-        "machine_id": "MTR-01",
-        "telemetry": {"vibration_rms": 6.0},
-        "alerts": []
-    }
-    res = engine.evaluate_decision(state)
-    assert res["decision"] == DEFAULT_ACTIONS[0] # "EMERGENCY_SHUTDOWN"
-    assert res["scoring_source"] == "groq_direct_logit"
-    assert res["confidence"] > 90.0
-
-
-def test_agent_orchestrate_triad_mock():
-    with patch("src.data.database.get_machine_health_summary") as mock_health:
-        mock_health.return_value = {
-            "name": "Centrifugal Pump Alpha",
-            "telemetry": [{"vibration_rms": 4.1, "temperature": 68.0}],
-            "alerts": []
+        "machine_id": "MTR-IND-01",
+        "telemetry": {
+            "temperature": 95.0,
+            "critical_temp_threshold": 80.0,
+            "vibration_rms": 1.1
         }
-        
-        agent = MaintenanceAgent(data_path="data/sample_maintenance_data.json")
-        agent.grok_key = "mock_grok_key"
-        
-        # Mock Grok response
-        with patch.object(agent, "_call_grok_node", return_value="1. Inspect drive bearing. 2. Verify dynamic balance."):
-            # Mock Sarvam response
-            with patch.object(agent, "_get_sarvam_inference", return_value="1. ड्राइव बेयरिंग का निरीक्षण करें। 2. गतिशील संतुलन सत्यापित करें।"):
-                res = agent.orchestrate_triad(
-                    machine_id="PUMP_01",
-                    query="Unusual harmonic sound on drive end",
-                    target_language="hi-IN",
-                    synthesize_audio=False
-                )
-                
-                assert "tier1_semif" in res
-                assert res["tier1_semif"]["decision"] == "INSPECT_BEARING"
-                assert "tier2_reasoning" in res
-                assert res["tier2_reasoning"]["engine"] == "grok"
-                assert "Inspect drive bearing" in res["tier2_reasoning"]["prescription"]
-                assert "tier3_sarvam" in res
-                assert res["tier3_sarvam"]["target_language"] == "hi-IN"
-                assert "ड्राइव बेयरिंग" in res["tier3_sarvam"]["translated_text"]
+    }
+    eval_res = engine.evaluate_asset_health(state)
+    assert eval_res["severity"] == "CRITICAL"
+    assert eval_res["urgency_score"] >= 90.0
+    assert any("Temperature Breach" in a for a in eval_res["anomalies"])
+
+
+def test_asset_health_evaluation_vibration_zone_d():
+    engine = IndustrialRAGEngine()
+    state = {
+        "machine_id": "PUMP-01",
+        "telemetry": {
+            "temperature": 55.0,
+            "vibration_rms": 5.2
+        }
+    }
+    eval_res = engine.evaluate_asset_health(state)
+    assert eval_res["severity"] == "CRITICAL"
+    assert any("Zone D" in a for a in eval_res["anomalies"])
+
+
+def test_asset_health_evaluation_nominal():
+    engine = IndustrialRAGEngine()
+    state = {
+        "machine_id": "FAN-01",
+        "telemetry": {
+            "temperature": 35.0,
+            "vibration_rms": 0.8
+        }
+    }
+    eval_res = engine.evaluate_asset_health(state)
+    assert eval_res["severity"] == "NOMINAL"
+    assert eval_res["action"] == "NOMINAL_MONITORING"
+
+
+def test_rag_answer_generation():
+    engine = IndustrialRAGEngine()
+    ans = engine.generate_rag_answer(
+        query="What is the ISO 10816 vibration limit for centrifugal pumps?",
+        machine_id="ESP32-HARDWARE-01"
+    )
+    assert "message" in ans
+    assert "engine" in ans
+    assert len(ans["message"]) > 0
+    assert len(ans["sources"]) >= 1
+
+
+def test_maintenance_agent_fast_triage_rag():
+    agent = MaintenanceAgent("data/sample_maintenance_data.json")
+    triage = agent.fast_triage("ESP32-HARDWARE-01")
+    assert "decision" in triage
+    assert "severity" in triage
+    assert "confidence" in triage
+    assert "action_metadata" in triage
+
+
+def test_maintenance_agent_orchestrate_triad():
+    agent = MaintenanceAgent("data/sample_maintenance_data.json")
+    res = agent.orchestrate_triad(
+        machine_id="ESP32-HARDWARE-01",
+        query="High temperature detected, what action is needed?",
+        target_language="hi-IN"
+    )
+    assert "tier1_health" in res
+    assert "tier2_reasoning" in res
+    assert "tier3_sarvam" in res

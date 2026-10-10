@@ -79,14 +79,6 @@ class MaintenanceAgent:
         self.grok_base_url = os.getenv("GROK_BASE_URL", "https://api.x.ai/v1")
         self.grok_model = os.getenv("GROK_MODEL", "grok-2-latest")
 
-        # System-1 Reflex Engine: SemIf Direct-Logit Scorer
-        from src.agent.semif_engine import SemIfEngine
-        self.semif_engine = SemIfEngine(groq_api_key=self.groq_key, ollama_url=self.ollama_base_url)
-
-        # Real-Time Autonomous Fleet Sentinel
-        from src.agent.realtime_sentinel import RealTimeSentinel
-        self.sentinel = RealTimeSentinel(semif_engine=self.semif_engine)
-
         # Cloud Multilingual Layer: Sarvam AI
         self.sarvam_key = os.getenv("SARVAM_API_KEY", "sk_7z9r70ux_oHPTY8oQFVMzIEkcAlLqafl8")
         self.sarvam_model = os.getenv("SARVAM_MODEL", "sarvam-105b-conversations")
@@ -109,6 +101,19 @@ class MaintenanceAgent:
                 self.pc = None
         else:
             self.pc = None
+
+        # Multi-Source Industrial RAG Engine (Grok + Sarvam AI)
+        from src.agent.rag_engine import IndustrialRAGEngine
+        self.rag_engine = IndustrialRAGEngine(
+            grok_api_key=self.grok_key,
+            sarvam_api_key=self.sarvam_key,
+            pinecone_api_key=self.pc_key,
+            db_path="data/factory_ops.db"
+        )
+
+        # Real-Time Autonomous Fleet Sentinel
+        from src.agent.realtime_sentinel import RealTimeSentinel
+        self.sentinel = RealTimeSentinel(rag_engine=self.rag_engine)
 
     def get_parameter_templates(self) -> Dict[str, List[Dict[str, Any]]]:
         """Library of pre-built parameter templates for common machine types."""
@@ -277,20 +282,19 @@ class MaintenanceAgent:
         scan_result = self.sentinel.inspect_fleet(target_machine_id=machine_id, dispatch_alerts=False)
         sentinel_card = self.sentinel.generate_sentinel_markdown(scan_result)
         primary_triage = scan_result["primary_triage"]
-        triage_result = primary_triage["semif"]
+        triage_result = primary_triage.get("health", primary_triage.get("semif", {}))
         target_asset = primary_triage["asset"]
 
-        # Detect language or explicit provider selection
-        is_indic = any(
-            ('\u0900' <= ch <= '\u097f') or ('\u0b80' <= ch <= '\u0bff') or ('\u0c00' <= ch <= '\u0c7f') or ('\u0a80' <= ch <= '\u0aff')
-            for ch in query
-        ) or any(kw in query.lower().split() for kw in ["hindi", "hinglish", "kripya", "kaise", "kya", "batao", "madad", "sthiti"])
+        # 3.6 Run Industrial RAG Pipeline (Grok + Sarvam AI)
+        rag_output = self.rag_engine.generate_rag_answer(
+            query=query,
+            machine_id=machine_id,
+            preferred_engine=selected_model
+        )
 
-        active_provider = "grok"
-        if selected_model == "sarvam" or (selected_model == "auto" and is_indic):
-            active_provider = "sarvam"
-        elif selected_model == "grok":
-            active_provider = "grok"
+        reasoning_response = rag_output.get("message", "")
+        active_engine_label = rag_output.get("engine", "Grok Reasoning Engine (xAI)")
+        rag_sources = rag_output.get("sources", [])
 
         # Check if user explicitly asked for the fleet scan / table
         query_lower = query.lower()
@@ -298,59 +302,6 @@ class MaintenanceAgent:
             "scan", "fleet", "all machines", "table", "status report", "health overview", 
             "summary report", "matrix", "full report", "diagnostic table"
         ])
-
-        reasoning_response = ""
-        active_engine_label = "Grok Technical Reasoning"
-
-        if active_provider == "sarvam" and self.sarvam_key:
-            active_engine_label = "Sarvam AI (sarvam-105b-conversations)"
-            indic_prompt = f"""आप एक औद्योगिक रखरखाव और सुरक्षा विशेषज्ञ AI हैं (Sovereign Industrial AI)।
-यूजर के प्रश्न का सीधा, प्रामाणिक और सटीक उत्तर दें।
-
-रियल-टाइम मशीन और सेंसर स्थिति:
-- मशीन: {target_asset['machine_id']} ({target_asset.get('name', 'औद्योगिक मशीन')})
-- लाइव टेलीमेट्री: {json.dumps(target_asset.get('telemetry', {}))}
-- डायग्नोस्टिक स्थिति: {triage_result['decision']} (सटीकता: {triage_result['confidence']}%, गंभीरता: {triage_result['severity']})
-{telemetry_context}
-
-निर्देश:
-1. यूजर के प्रश्न का सीधा और तकनीकी उत्तर हिंदी या हिंग्लिश में दें।
-2. यदि यूजर मशीन या सेंसर के बारे में पूछ रहा है, तो ऊपर दिए गए लाइव डेटा का उपयोग करें।
-3. यदि यूजर सामान्य इंजीनियरिंग या तकनीकी प्रश्न पूछ रहा है, तो उस प्रश्न का विस्तृत और सही उत्तर दें।
-4. उत्तर को सुंदर मार्कडाउन में व्यवस्थित करें।"""
-            sarvam_ans = self._get_sarvam_inference(indic_prompt, query)
-            if sarvam_ans and not sarvam_ans.startswith("Sarvam chat inference unavailable"):
-                reasoning_response = sarvam_ans
-
-        if not reasoning_response:
-            active_engine_label = "Grok Reasoning Engine (xAI / High-Intelligence)"
-            system_prompt = f"""You are the Sovereign Industrial Intelligence Assistant, paired with plant maintenance engineers.
-
-REAL-TIME SENSOR & FLEET TELEMETRY:
-- Target Equipment: {target_asset['machine_id']} ({target_asset.get('name', 'Industrial Asset')})
-- Live Sensor Metrics: {json.dumps(target_asset.get('telemetry', {}))}
-- Fleet SemIf Status: {triage_result['decision']} (Severity: {triage_result['severity']}, Confidence: {triage_result['confidence']}%)
-- Driving Sensor Signals: {", ".join(triage_result.get('key_drivers', []))}
-{m_meta}
-{p_context}
-{telemetry_context}
-{visual_context_memory}
-{vector_context}
-{history_context}
-
-CRITICAL INSTRUCTIONS:
-1. Prioritize addressing the user's query directly, accurately, and naturally.
-2. If the user asks about machine health, temperature, current, vibration, or sensor values, cite the live sensor readings above.
-3. If the user asks general engineering, maintenance best practices, troubleshooting tips, or explanations, provide an authoritative, detailed answer to their specific question.
-4. When actionable steps are needed, provide a numbered step-by-step Standard Operating Procedure (SOP).
-5. Format your response cleanly using GitHub markdown. Avoid repeating generic unprompted warning boilerplate if the user did not ask about it.
-"""
-            # Direct Grok reasoning call
-            grok_ans = self._call_grok_node(system_prompt, query, max_tokens=750)
-            if grok_ans:
-                reasoning_response = grok_ans
-            else:
-                reasoning_response = self._call_worker_node(system_prompt, query)
 
         # Build clean final message
         if wants_fleet_scan:
@@ -363,17 +314,17 @@ CRITICAL INSTRUCTIONS:
         log_agent_interaction(machine_id, "user", query, session_id=session_id)
         log_agent_interaction(machine_id, "assistant", full_message, session_id=session_id)
 
-        sources = [
-            {"name": active_engine_label, "description": f"Real-time dynamic inference via {active_engine_label}"},
-            {"name": "Live Telemetry Feed", "description": f"Node {target_asset['machine_id']} telemetry buffer"},
-            {"name": "SemIf Decision Core", "description": f"Action: {triage_result['decision']} ({triage_result['confidence']}%)"}
+        sources = rag_sources or [
+            {"name": active_engine_label, "description": f"Real-time RAG inference via {active_engine_label}"},
+            {"name": "Live Telemetry Feed", "description": f"Node {target_asset['machine_id']} telemetry buffer"}
         ]
 
         return {
             "message": full_message,
             "sources": sources,
-            "confidence": triage_result["confidence"] if triage_result else 98.5,
+            "confidence": rag_output.get("confidence", 98.5),
             "engine": active_engine_label,
+            "health_evaluation": triage_result,
             "semif_triage": triage_result,
             "fleet_scan": scan_result
         }
@@ -897,12 +848,13 @@ CRITICAL INSTRUCTIONS:
 
     def fast_triage(self, machine_id: str, context: Optional[str] = None) -> Dict[str, Any]:
         """
-        Tier 1 (SemIf Direct-Logit System-1):
-        Instantaneous triage decision (<60ms) evaluating live physical hardware,
-        Dataset 1 Terminal, and Dataset 2 Transformer models.
+        Multi-Model RAG Health Triage:
+        Evaluates real physical hardware, Dataset 1 Terminal, and Dataset 2 Transformer models
+        using engineering physics and ISO standards.
         """
         scan = self.sentinel.inspect_fleet(target_machine_id=machine_id)
-        return scan["primary_triage"]["semif"]
+        prim = scan["primary_triage"]
+        return prim.get("health", prim.get("semif", {}))
 
     def orchestrate_triad(
         self,
@@ -912,30 +864,31 @@ CRITICAL INSTRUCTIONS:
         synthesize_audio: bool = False
     ) -> Dict[str, Any]:
         """
-        Multi-Model Orchestration Triad:
-        Tier 1: SemIf Direct-Logit Fast Decision (System 1)
-        Tier 2: Grok/Mistral Deep Reasoning SOP Synthesis (System 2)
+        Multi-Model Orchestration Triad (Grok + Sarvam RAG):
+        Tier 1: Multi-Source Telemetry & Health Evaluation (Physics & ML Ensemble)
+        Tier 2: Grok Deep Technical Reasoning & SOP Synthesis (System 2)
         Tier 3: Sarvam AI Vernacular Translation & Voice Delivery (Indic STT/TTS)
         """
-        # Tier 1: SemIf System-1 Reflex Triage
+        # Tier 1: Real-time Multi-Asset Health Evaluation
         t1_decision = self.fast_triage(machine_id, context=query)
 
-        # Tier 2: System-2 Diagnostic Reasoning
-        system_prompt = f"""You are the Industrial Maintenance Orchestrator.
-System-1 Reflex Triage has determined immediate action: {t1_decision['decision']} ({t1_decision['confidence']}% confidence).
-Severity: {t1_decision['severity']}. Action Scope: {t1_decision['action_metadata']['description']}.
+        # Tier 2: Grok Deep Reasoning & SOP Synthesis
+        system_prompt = f"""You are the Industrial Maintenance Orchestrator (Grok RAG Core).
+Asset ID: {machine_id}
+Operational State: {t1_decision['decision']} (Urgency: {t1_decision['confidence']}%).
+Condition Severity: {t1_decision['severity']}. Action Scope: {t1_decision['action_metadata']['description']}.
+Primary Drivers: {", ".join(t1_decision.get('key_drivers', []))}.
 
 Provide a technical root-cause synthesis and a concise, numbered 3-step Standard Operating Procedure (SOP) for the maintenance engineer.
 """
-        user_content = f"Asset ID: {machine_id}\nQuery/Context: {query}\nTriage Decision: {t1_decision['decision']}"
-        t2_explanation = self._call_brain_node(system_prompt, user_content, max_tokens=500)
+        user_content = f"Asset ID: {machine_id}\nQuery/Context: {query}\nRecommended Action: {t1_decision['decision']}"
+        t2_explanation = self._call_grok_node(system_prompt, user_content, max_tokens=500) or self._call_brain_node(system_prompt, user_content, max_tokens=500)
 
         # Tier 3: Sarvam AI Multilingual & Voice Synthesis
         translated_text = ""
         audio_base64 = ""
 
         if self.sarvam_key and target_language:
-            # If target language is non-English Indic, translate using Sarvam chat
             if not target_language.startswith("en"):
                 trans_prompt = f"Translate the following industrial maintenance instruction accurately and concisely into the language specified by '{target_language}'. Keep numbers and technical part names intact."
                 sarvam_trans = self._get_sarvam_inference(trans_prompt, t2_explanation)
@@ -944,11 +897,11 @@ Provide a technical root-cause synthesis and a concise, numbered 3-step Standard
 
             if synthesize_audio:
                 speech_input = translated_text or t2_explanation
-                # Truncate text to fit TTS audio limits if necessary
                 speech_snippet = speech_input[:400]
                 audio_base64 = self.text_to_speech(speech_snippet, language_code=target_language)
 
         return {
+            "tier1_health": t1_decision,
             "tier1_semif": t1_decision,
             "tier2_reasoning": {
                 "engine": "grok" if self.grok_key else ("mistral" if self.mistral_client else "groq/local"),

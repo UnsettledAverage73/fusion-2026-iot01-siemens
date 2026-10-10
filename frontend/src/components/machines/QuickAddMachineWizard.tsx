@@ -567,7 +567,7 @@ export function QuickAddMachineWizard({ isOpen, onClose, onSuccess }: QuickAddMa
                         </span>
                       </h3>
                       <p className="text-xs text-rose-200/70">
-                        Governs edge MCU hardware interlock, SemIf real-time decision engine, and Slack alerts (#all-average)
+                        Governs edge MCU hardware interlock, Grok/Sarvam RAG Sentinel, and Slack alerts (#all-average)
                       </p>
                     </div>
                   </div>
@@ -602,7 +602,7 @@ export function QuickAddMachineWizard({ isOpen, onClose, onSuccess }: QuickAddMa
                   </div>
                   <div className="flex items-center gap-2 text-rose-200/80">
                     <span className="h-2 w-2 rounded-full bg-rose-500 animate-pulse" />
-                    <span>2. SemIf runs failure probability</span>
+                    <span>2. RAG Sentinel evaluates physics & ML</span>
                   </div>
                   <div className="flex items-center gap-2 text-rose-200/80">
                     <span className="h-2 w-2 rounded-full bg-rose-500 animate-pulse" />
