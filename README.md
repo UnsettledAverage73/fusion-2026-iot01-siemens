@@ -1,16 +1,22 @@
-# 🏭 Sovereign Predictive Maintenance System
-### *Autonomous Condition-Based Monitoring & Generative AI Diagnostics for Industry 4.0*
+# ⚡ Siemens Smart Grid Predictive Failure Detection (IOT-01)
+### *Autonomous Condition-Based Monitoring & Physics-Informed ML for Smart Grid Substations*
+
+> **🏆 Fusion 2026 Hackathon Submission**  
+> **Domain:** Internet of Things (IoT)  
+> **Problem Statement (PS):** IOT-01 – Predictive Failure Detection for Smart Grid Substations  
+> **Organization:** Siemens  
+> **College Name:** Smt. Kashibai Navale College of Engineering, Pune (SKNCOE)  
+> **Reference Datasets:**  
+> - [Kaggle: Smart Grid Terminal Fault Dataset](https://www.kaggle.com/datasets/zara2099/smart-grid-terminal-fault-dataset)  
+> - [Kaggle: Failure Analysis in Power Transformers (DGA)](https://www.kaggle.com/datasets/shashwatwork/failure-analysis-in-power-transformersdataset)  
+> - **Physical IoT Testbench:** ESP32 Microcontroller Node (DHT11 Temperature/Humidity, ACS712 Current, Hall Magnetic RPM, Operator Push Button, Alarm Buzzer)
 
 [![Python](https://img.shields.io/badge/Python-3.12%20%7C%203.14-blue?logo=python&logoColor=white)](https://www.python.org/)
 [![Rust](https://img.shields.io/badge/Rust-Native%20Engine-DEA584?logo=rust&logoColor=white)](https://www.rust-lang.org/)
 [![FastAPI](https://img.shields.io/badge/FastAPI-High%20Performance-009688?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
 [![Next.js](https://img.shields.io/badge/Next.js-16%20%7C%20React%2019-black?logo=next.js&logoColor=white)](https://nextjs.org/)
-[![Render](https://img.shields.io/badge/Deploy%20to-Render-46E3B7?logo=render&logoColor=white)](https://render.com/deploy?repo=https://github.com/UnsettledAverage73/predictive_maintainance_system)
 [![Docker](https://img.shields.io/badge/Docker-Ready-2496ED?logo=docker&logoColor=white)](https://www.docker.com/)
-[![Tests](https://img.shields.io/badge/Tests-30%20Passed-brightgreen)](tests/)
-[![Standards](https://img.shields.io/badge/Compliance-ISO%2014224%20%7C%20ISO%2010816-orange)](docs/standards/)
-
-[![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/UnsettledAverage73/predictive_maintainance_system)
+[![Standards](https://img.shields.io/badge/Compliance-IEEE%20C57.104%20%7C%20IEC%2060599%20%7C%20ISO%2010816-orange)](docs/)
 
 ---
 
