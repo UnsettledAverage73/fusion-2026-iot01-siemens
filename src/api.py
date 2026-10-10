@@ -312,9 +312,29 @@ def _prepare_ingest_payload(req: IoTIngestRequest) -> Dict[str, Any]:
         payload["humidity"] = req.humidity
     if req.vibration is not None:
         payload["vibration"] = req.vibration
+    if req.vibration_rms is not None:
+        payload["vibration_rms"] = req.vibration_rms
+    if req.current_draw is not None:
+        payload["current_draw"] = req.current_draw
+    if req.rpm is not None:
+        payload["rpm"] = req.rpm
+    if req.push_button is not None:
+        payload["push_button"] = req.push_button
+        payload["button_state"] = req.push_button
+    if req.button is not None:
+        payload["button"] = req.button
+        payload["button_state"] = req.button
+    if req.hall_flux is not None:
+        payload["hall_flux"] = req.hall_flux
+    if req.buzzer is not None:
+        payload["buzzer"] = req.buzzer
+    if req.voltage is not None:
+        payload["voltage"] = req.voltage
+    if req.frequency is not None:
+        payload["frequency"] = req.frequency
 
     parameters = dict(req.parameters or {})
-    for key in ("temperature", "humidity", "vibration", "vibration_rms", "pressure", "rpm", "current_draw", "status", "telemetry_status"):
+    for key in ("temperature", "humidity", "vibration", "vibration_rms", "pressure", "rpm", "current_draw", "push_button", "button", "button_state", "hall_flux", "buzzer", "voltage", "frequency", "status", "telemetry_status"):
         if key in parameters:
             payload[key] = parameters[key]
 

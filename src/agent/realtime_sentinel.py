@@ -38,8 +38,8 @@ class RealTimeSentinel:
         hum = float(metrics.get("humidity", 65.0))
         current = float(metrics.get("current_draw", 4.12))
         rpm = float(metrics.get("rpm", 1450.0))
-        btn_state = metrics.get("push_button") or metrics.get("button_state")
-        btn_pressed = str(btn_state).upper() in ("1", "PRESSED", "1.0", "TRUE")
+        btn_val = metrics.get("push_button") if metrics.get("push_button") is not None else metrics.get("button_state")
+        btn_pressed = str(btn_val).strip().upper() in ("1", "PRESSED", "1.0", "TRUE")
         vib = float(metrics.get("vibration_rms", metrics.get("vibration", 0.05)))
         
         return {
@@ -54,7 +54,7 @@ class RealTimeSentinel:
                 "vibration_rms": vib,
                 "source": metrics.get("source", "usb_serial_direct")
             },
-            "alerts": [a.get("reason", "") for a in health.get("alerts", [])]
+            "alerts": [f"{a.get('reason', '')} (Logged at {a.get('timestamp', '')})" for a in health.get("alerts", []) if a.get("reason")]
         }
 
     def get_dataset1_terminal_state(self) -> Dict[str, Any]:
