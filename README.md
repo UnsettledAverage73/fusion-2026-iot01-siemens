@@ -1,11 +1,20 @@
 # ⚡ Siemens Smart Grid Predictive Failure Detection (IOT-01)
 ### *Autonomous Condition-Based Monitoring & Physics-Informed ML for Smart Grid Substations*
 
-> **🏆 Fusion 2026 Hackathon Submission**  
-> **Domain:** Internet of Things (IoT)  
-> **Problem Statement (PS):** IOT-01 – Predictive Failure Detection for Smart Grid Substations  
-> **Organization:** Siemens  
-> **College Name:** Smt. Kashibai Navale College of Engineering, Pune (SKNCOE)  
+
+### 📝 Submission Details
+
+| Field | Details |
+| :--- | :--- |
+| **Team Name** | SSGMCE |
+| **Team Lead** | Shlok Rathi |
+| **Team members** | Sanchit Dangra, Atharva Bodade, Aryan Deshmukh |
+| **College Name** | Shri Sant Gajanan Maharaj College of Engineering, Shegaon |
+| **Project Type** | IOT |
+| **Project Title**| Predictive Failure Detection for Smart Grid Substations |
+| **Submission Date** | OCT 2026 | 
+
+
 > **Reference Datasets:**  
 > - [Kaggle: Smart Grid Terminal Fault Dataset](https://www.kaggle.com/datasets/zara2099/smart-grid-terminal-fault-dataset)  
 > - [Kaggle: Failure Analysis in Power Transformers (DGA)](https://www.kaggle.com/datasets/shashwatwork/failure-analysis-in-power-transformersdataset)  
