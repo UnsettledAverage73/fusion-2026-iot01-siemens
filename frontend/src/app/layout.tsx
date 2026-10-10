@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import { Plus_Jakarta_Sans, JetBrains_Mono } from "next/font/google";
 import "./globals.css";
 import { ThemeProvider } from "@/lib/theme/theme-provider";
+import { HardwareStreamProvider } from "@/context/HardwareStreamContext";
 
 const jakarta = Plus_Jakarta_Sans({
   variable: "--font-jakarta",
@@ -34,7 +35,9 @@ export default function RootLayout({
     <html lang="en" className={`${jakarta.variable} ${jetbrains.variable}`} suppressHydrationWarning>
       <body className="antialiased min-h-screen bg-[var(--color-background)] text-[var(--color-foreground)] flex flex-col font-sans">
         <ThemeProvider>
-          {children}
+          <HardwareStreamProvider>
+            {children}
+          </HardwareStreamProvider>
         </ThemeProvider>
       </body>
     </html>

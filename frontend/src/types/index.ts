@@ -75,6 +75,7 @@ export interface TelemetryPoint {
   status?: string;
   isAnomaly?: boolean;
   alertReason?: string;
+  [key: string]: any;
 }
 
 export interface Alert {

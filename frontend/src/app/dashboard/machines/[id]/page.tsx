@@ -19,6 +19,7 @@ import { ConnectedModelInspector } from "@/components/machines/ConnectedModelIns
 import { WebSerialDirectConnector } from "@/components/machines/WebSerialDirectConnector";
 import { api } from "@/lib/api";
 import { useMultiplexStream } from "@/lib/hooks/use-multiplex-stream";
+import { useHardwareStream } from "@/context/HardwareStreamContext";
 import { Machine, TelemetryPoint, MaintenanceTask, MachineInsights } from "@/types";
 import { cn } from "@/lib/utils";
 
@@ -77,6 +78,36 @@ export default function MachineDetailPage({ params }: { params: Promise<{ id: st
   const [isTriggering, setIsTriggering] = useState(false);
   const [showHardwareWizard, setShowHardwareWizard] = useState(false);
   const [showWebSerial, setShowWebSerial] = useState(false);
+
+  const {
+    isConnected: isHardwareConnected,
+    selectedMachine: hwMachineId,
+    latestPacket: hwLatestPacket,
+    cadenceHz: hwCadenceHz,
+    packetCount: hwPacketCount,
+    setSelectedMachine: setHwSelectedMachine,
+    isStreamingMachine,
+  } = useHardwareStream();
+
+  const isStreamingCurrentMachine = isStreamingMachine(idStr);
+
+  // Continuously ingest background hardware packets into machine's telemetry series
+  useEffect(() => {
+    if (!isStreamingCurrentMachine || !hwLatestPacket) return;
+
+    setTelemetry((prev) => {
+      const nextPoint: TelemetryPoint = {
+        timestamp: hwLatestPacket.timestamp || new Date().toISOString(),
+        temperature: hwLatestPacket.temperature,
+        vibration: hwLatestPacket.vibration ?? 1.2,
+        acoustic: hwLatestPacket.acoustic ?? 45,
+        rpm: hwLatestPacket.rpm,
+        ...hwLatestPacket,
+      };
+      const next = [...prev, nextPoint];
+      return next.slice(-100);
+    });
+  }, [hwLatestPacket, isStreamingCurrentMachine]);
 
   useEffect(() => {
     const fetchData = async () => {
@@ -194,7 +225,16 @@ export default function MachineDetailPage({ params }: { params: Promise<{ id: st
 
   const healthScore = machine.healthScore ?? Math.max(0, 100 - machine.riskScore);
   const minutesToFailure = machine.minutesToFailure ?? null;
-  const latestTelemetry = telemetry.length > 0 ? (telemetry[telemetry.length - 1] as TelemetrySnapshot) : null;
+  const latestTelemetry: (TelemetrySnapshot | null) = (isStreamingCurrentMachine && hwLatestPacket)
+    ? ({
+        timestamp: hwLatestPacket.timestamp || new Date().toISOString(),
+        temperature: hwLatestPacket.temperature,
+        vibration: hwLatestPacket.vibration ?? 1.2,
+        acoustic: hwLatestPacket.acoustic ?? 45,
+        rpm: hwLatestPacket.rpm,
+        ...hwLatestPacket,
+      } as TelemetrySnapshot)
+    : (telemetry.length > 0 ? (telemetry[telemetry.length - 1] as TelemetrySnapshot) : null);
 
   return (
     <div className="flex flex-col gap-6 animate-in fade-in duration-500 pb-20">
@@ -247,13 +287,24 @@ export default function MachineDetailPage({ params }: { params: Promise<{ id: st
             onClick={() => setShowWebSerial(!showWebSerial)}
             className={cn(
               "px-4 py-2 rounded-lg text-sm font-bold transition-all flex items-center gap-2 border",
-              showWebSerial
+              isStreamingCurrentMachine
+                ? "bg-emerald-500/20 text-emerald-300 border-emerald-500/50 shadow-[0_0_15px_rgba(16,185,129,0.3)] hover:bg-emerald-500/30"
+                : showWebSerial
                 ? "bg-sky-500 text-white border-sky-400 shadow-[0_0_15px_rgba(56,189,248,0.4)]"
                 : "bg-sky-500/10 border-sky-500/40 text-sky-400 hover:bg-sky-500/20"
             )}
           >
             <Usb className="w-4 h-4" />
-            {showWebSerial ? "Hide USB Stream" : "Direct USB Stream (WebSerial)"}
+            {isStreamingCurrentMachine ? (
+              <span className="flex items-center gap-1.5">
+                <span className="h-2 w-2 rounded-full bg-emerald-400 animate-pulse inline-block" />
+                <span>USB Streaming Live</span>
+              </span>
+            ) : showWebSerial ? (
+              "Hide USB Stream"
+            ) : (
+              "Direct USB Stream (WebSerial)"
+            )}
           </button>
           <button 
             onClick={handleTriggerAnomaly}
@@ -272,6 +323,71 @@ export default function MachineDetailPage({ params }: { params: Promise<{ id: st
           </button>
         </div>
       </div>
+
+      {/* Persistent Live Hardware Stream Status Banner */}
+      {isStreamingCurrentMachine ? (
+        <div className="bg-emerald-950/40 border border-emerald-500/40 rounded-xl p-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-[0_0_25px_rgba(16,185,129,0.15)] animate-in fade-in">
+          <div className="flex items-center gap-3">
+            <div className="relative flex h-3.5 w-3.5 shrink-0">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+              <span className="relative inline-flex rounded-full h-3.5 w-3.5 bg-emerald-500"></span>
+            </div>
+            <div>
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="text-xs font-black tracking-wider uppercase text-emerald-300">
+                  Live USB Hardware Stream Connected
+                </span>
+                <span className="text-[10px] bg-emerald-500/20 text-emerald-400 px-2 py-0.5 rounded font-mono border border-emerald-500/30 font-bold">
+                  {hwCadenceHz.toFixed(1)} Hz • {hwPacketCount} packets
+                </span>
+                <span className="text-[10px] bg-white/10 text-slate-300 px-2 py-0.5 rounded font-mono">
+                  Machine: {hwMachineId}
+                </span>
+              </div>
+              <p className="text-[11px] text-slate-400 font-mono mt-0.5">
+                Hardware runs continuously in background across navigation. DHT11 temp/humidity, ACS712 current, Hall RPM, and push button are streaming live.
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2 shrink-0">
+            <button
+              onClick={() => setShowWebSerial(prev => !prev)}
+              className="text-xs font-mono bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/40 px-3 py-1.5 rounded-lg transition-all flex items-center gap-1.5"
+            >
+              <Usb className="w-3.5 h-3.5" />
+              {showWebSerial ? "Hide Console" : "Hardware Console"}
+            </button>
+          </div>
+        </div>
+      ) : isHardwareConnected ? (
+        <div className="bg-amber-950/40 border border-amber-500/40 rounded-xl p-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-[0_0_20px_rgba(245,158,11,0.15)] animate-in fade-in">
+          <div className="flex items-center gap-3">
+            <div className="relative flex h-3 w-3 shrink-0">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
+              <span className="relative inline-flex rounded-full h-3 w-3 bg-amber-500"></span>
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-black tracking-wider uppercase text-amber-300">
+                  USB Hardware Stream Active on Another Machine
+                </span>
+                <span className="text-[10px] bg-amber-500/20 text-amber-400 px-2 py-0.5 rounded font-mono border border-amber-500/30">
+                  Target: {hwMachineId}
+                </span>
+              </div>
+              <p className="text-[11px] text-slate-400 font-mono mt-0.5">
+                Physical ESP32 is currently routing data to {hwMachineId}. Switch live stream to this machine ({machine.name})?
+              </p>
+            </div>
+          </div>
+          <button
+            onClick={() => setHwSelectedMachine(idStr)}
+            className="text-xs font-mono bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 px-3 py-1.5 rounded-lg transition-all flex items-center gap-1.5 shrink-0"
+          >
+            Route Stream Here →
+          </button>
+        </div>
+      ) : null}
 
       {showHardwareWizard && (
         <div className="relative animate-in slide-in-from-top-4 duration-300">

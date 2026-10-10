@@ -1,13 +1,17 @@
 'use client';
 
-import { useEffect, useState } from "react";
-import { Bell, ChevronRight, Radio, Search, WifiOff } from "lucide-react";
+import { useState, useEffect } from "react";
+import Link from "next/link";
+import { Bell, ChevronRight, Radio, Search, WifiOff, Usb } from "lucide-react";
 import { api } from "@/lib/api";
+import { useHardwareStream } from "@/context/HardwareStreamContext";
 
 export function DashboardHeader() {
   const [alertCount, setAlertCount] = useState(0);
   const [sensorState, setSensorState] = useState<"loading" | "live" | "registered" | "offline">("loading");
   const [currentUser, setCurrentUser] = useState<{ name?: string; email?: string; picture?: string; role?: string } | null>(null);
+
+  const { isConnected: isUsbConnected, selectedMachine: usbMachine, cadenceHz: usbCadence, packetCount: usbPackets } = useHardwareStream();
 
   useEffect(() => {
     try {
@@ -98,14 +102,30 @@ export function DashboardHeader() {
         </button>
       </div>
       <div className="ml-auto flex items-center gap-3">
-        <div className="hidden lg:flex items-center gap-2 rounded-full border border-white/8 bg-white/4 px-3 py-2 text-xs text-[var(--color-muted)]">
-          {sensorState === "offline" ? (
-            <WifiOff className="h-3.5 w-3.5 text-[var(--color-destructive)]" />
-          ) : (
-            <Radio className={`h-3.5 w-3.5 ${sensorState === "live" ? "text-[var(--color-success)]" : "text-[var(--color-warning)]"}`} />
-          )}
-          <span className="font-medium text-[var(--color-foreground)]">{sensorLabel}</span>
-        </div>
+        {isUsbConnected ? (
+          <Link
+            href={`/dashboard/machines/${usbMachine}`}
+            className="flex items-center gap-2 rounded-full border border-emerald-500/40 bg-emerald-500/10 px-3.5 py-1.5 text-xs font-mono text-emerald-400 hover:bg-emerald-500/20 transition-all shadow-[0_0_15px_rgba(16,185,129,0.25)] group"
+            title={`Hardware streaming live to ${usbMachine} in background. Click to visit.`}
+          >
+            <span className="w-2 h-2 rounded-full bg-emerald-400 shadow-[0_0_8px_#10b981] animate-pulse" />
+            <Usb className="h-3.5 w-3.5" />
+            <span className="font-bold">{usbMachine}</span>
+            <span className="text-[10px] text-emerald-400/80">({usbCadence || 1.0} Hz)</span>
+            <span className="bg-emerald-400 text-black text-[9px] font-black uppercase px-1.5 py-0.5 rounded-full ml-1 group-hover:bg-white transition-colors">
+              Visit Machine →
+            </span>
+          </Link>
+        ) : (
+          <div className="hidden lg:flex items-center gap-2 rounded-full border border-white/8 bg-white/4 px-3 py-2 text-xs text-[var(--color-muted)]">
+            {sensorState === "offline" ? (
+              <WifiOff className="h-3.5 w-3.5 text-[var(--color-destructive)]" />
+            ) : (
+              <Radio className={`h-3.5 w-3.5 ${sensorState === "live" ? "text-[var(--color-success)]" : "text-[var(--color-warning)]"}`} />
+            )}
+            <span className="font-medium text-[var(--color-foreground)]">{sensorLabel}</span>
+          </div>
+        )}
         <button className="hidden lg:flex items-center gap-2 rounded-full border border-white/8 bg-white/4 px-3 py-2 text-xs font-medium text-[var(--color-muted)] hover:border-[var(--color-primary)]/25 hover:text-[var(--color-foreground)]">
           Operations Hub
           <ChevronRight className="h-3.5 w-3.5" />
